@@ -57,6 +57,20 @@ fn deterministic_with_fixed_seed() {
     .unwrap();
     assert_eq!(first.code, second.code);
     assert_eq!(first.metadata.output_hash, second.metadata.output_hash);
+    assert!(!first.code.contains("local W="));
+    assert!(!first.code.contains("local C="));
+    assert!(!first.code.contains("function dwv"));
+    assert!(first.code.contains("C[1][C[2][i+1]]"));
+
+    let third = obfuscate(
+        &source,
+        ObfuscationOptions {
+            seed: 6,
+            ..ObfuscationOptions::default()
+        },
+    )
+    .unwrap();
+    assert_ne!(first.code, third.code);
 }
 
 #[test]

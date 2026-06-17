@@ -1,9 +1,12 @@
-use ferret_crypto::{encode_bytes, encode_words};
-use ferret_ir::{Capture, Chunk, Const};
+use ferret_ir::Chunk;
 use ferret_util::stable_hash;
 
 use crate::bytecode::layout::opcode_layout;
+use crate::emit::constants::constants;
+use crate::emit::lists::words;
 use crate::emit::names::op_name;
+use crate::emit::pack::encoded_words;
+use crate::emit::symbols::{symbols, Symbols};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmitReport {
@@ -15,16 +18,20 @@ pub struct EmitReport {
 
 pub fn emit_lua(chunk: &Chunk, seed: u64) -> EmitReport {
     let layout = opcode_layout(seed);
-    let raw_words = pack(chunk, &layout);
-    let enc_words = encode_words(&raw_words, seed);
+    let syms = symbols(seed);
+    let (enc_words, stream_seed) = encoded_words(chunk, &layout, seed, 0x70f0_1eaf);
     let mut code = String::new();
-    code.push_str("do\nlocal W=");
+    code.push_str("do\nlocal ");
+    code.push_str(&syms.words);
+    code.push('=');
     words(&mut code, &enc_words);
-    code.push_str("\nlocal C=");
+    code.push_str("\nlocal ");
+    code.push_str(&syms.constants);
+    code.push('=');
     constants(&mut code, &chunk.constants, seed, &layout);
     code.push('\n');
     op_locals(&mut code, &layout);
-    code.push_str(&runtime(seed));
+    code.push_str(&runtime(stream_seed, &syms));
     code.push_str("\nend\n");
     EmitReport {
         output_hash: stable_hash(code.as_bytes()),
@@ -32,90 +39,6 @@ pub fn emit_lua(chunk: &Chunk, seed: u64) -> EmitReport {
         bytecode_words: enc_words.len(),
         constant_count: chunk.constants.len(),
     }
-}
-
-fn pack(chunk: &Chunk, layout: &std::collections::BTreeMap<ferret_ir::Op, u32>) -> Vec<u32> {
-    let mut words = Vec::with_capacity(chunk.instructions.len() * 4);
-    for instr in &chunk.instructions {
-        words.push(layout[&instr.op]);
-        words.push(u32::from(instr.a));
-        words.push(u32::from(instr.b));
-        words.push(u32::from(instr.c));
-    }
-    words
-}
-
-fn constants(
-    out: &mut String,
-    constants: &[Const],
-    seed: u64,
-    layout: &std::collections::BTreeMap<ferret_ir::Op, u32>,
-) {
-    out.push('{');
-    for (index, constant) in constants.iter().enumerate() {
-        let item_seed = seed ^ ((index as u64 + 1) * 0x9e37);
-        match constant {
-            Const::Nil => out.push_str("{0},"),
-            Const::Bool(value) => {
-                out.push_str(if *value { "{1,1}," } else { "{1,0}," });
-            }
-            Const::Number(value) => protected(out, 2, &number_text(*value), item_seed),
-            Const::String(value) => protected(out, 3, value, item_seed),
-            Const::Function { chunk, captures } => {
-                function_const(out, chunk, captures, item_seed, layout);
-            }
-        }
-    }
-    out.push('}');
-}
-
-fn function_const(
-    out: &mut String,
-    chunk: &Chunk,
-    captures: &[Capture],
-    seed: u64,
-    layout: &std::collections::BTreeMap<ferret_ir::Op, u32>,
-) {
-    out.push_str("{4,");
-    out.push_str(&(seed as u32).to_string());
-    out.push(',');
-    words(out, &encode_words(&pack(chunk, layout), seed));
-    out.push(',');
-    constants(out, &chunk.constants, seed, layout);
-    out.push(',');
-    out.push_str(&chunk.params.to_string());
-    out.push(',');
-    capture_list(out, captures);
-    out.push_str("},");
-}
-
-fn capture_list(out: &mut String, captures: &[Capture]) {
-    out.push('{');
-    for capture in captures {
-        match capture {
-            Capture::Local(reg) => {
-                out.push_str("{0,");
-                out.push_str(&reg.to_string());
-                out.push_str("},");
-            }
-            Capture::Upvalue(index) => {
-                out.push_str("{1,");
-                out.push_str(&index.to_string());
-                out.push_str("},");
-            }
-        }
-    }
-    out.push('}');
-}
-
-fn protected(out: &mut String, tag: u8, value: &str, seed: u64) {
-    out.push('{');
-    out.push_str(&tag.to_string());
-    out.push(',');
-    out.push_str(&(seed as u32).to_string());
-    out.push(',');
-    bytes(out, &encode_bytes(value.as_bytes(), seed));
-    out.push_str("},");
 }
 
 fn op_locals(out: &mut String, layout: &std::collections::BTreeMap<ferret_ir::Op, u32>) {
@@ -128,43 +51,43 @@ fn op_locals(out: &mut String, layout: &std::collections::BTreeMap<ferret_ir::Op
     }
 }
 
-fn runtime(seed: u64) -> String {
-    format!(
-        r#"local M=2147483647
-local function dwv(T,seed)
- local s=(seed ~ 1113150533)&M
- for i=1,#T do s=(s*1103515245+12345+i*97)&M; T[i]=(T[i]~s)&M end
+fn runtime(seed: u64, syms: &Symbols) -> String {
+    let mut code = format!(
+        r#"local @M@=2147483647
+local function @DWV@(T,seed)
+ local s=(seed ~ 1113150533)&@M@
+ for i=1,#T do s=(s*1103515245+12345+i*97)&@M@; T[i]=(T[i]~s)&@M@ end
 end
-local function db(seed,b)
+local function @DB@(seed,b)
  local s=(seed ~ 1398035015)&255
  local o={{}}
  for i=1,#b do s=(s*73+41+i*17)&255; o[i]=string.char(b[i]~s) end
  return table.concat(o)
 end
-local run
-local function K(C,i,R,U)
- local r=C[i+1]; local t=r[1]
+local @RUN@
+local function @K@(C,i,R,U)
+ local r=C[1][C[2][i+1]]; local t=r[1]
  if t==0 then return nil elseif t==1 then return r[2]==1 end
  if t==4 then
-  if r[7]~=1 then dwv(r[3],r[2]); r[7]=1 end
+  if r[7]~=1 then @DWV@(r[3],r[2]); r[7]=1 end
   local FW,FC,P,CAP=r[3],r[4],r[5],r[6]
   return function(...)
    local NU={{}}
    for i=1,#CAP do local c=CAP[i]; if c[1]==0 then NU[i]=R[c[2]] else NU[i]=U[c[2]+1] end end
-   return run(FW,FC,P,{{...}},NU,select('#',...))
+   return @RUN@(FW,FC,P,{{...}},NU,select('#',...))
   end
  end
- local v=db(r[2],r[3]); if t==2 then return tonumber(v) end; return v
+ local v=@DB@(r[2],r[3]); if t==2 then return tonumber(v) end; return v
 end
-run=function(W,C,P,A,U,N)
+@RUN@=function(W,C,P,A,U,N)
 local R={{}}; for i=1,P do R[i-1]=A[i] end; local pc=1
 while true do
  local op,a,b,c=W[pc],W[pc+1],W[pc+2],W[pc+3]; pc=pc+4
  if op==OP_HALT then return
- elseif op==OP_LOADK then R[a]=K(C,b,R,U)
+ elseif op==OP_LOADK then R[a]=@K@(C,b,R,U)
  elseif op==OP_MOVE then R[a]=R[b]
- elseif op==OP_GETGLOBAL then R[a]=_ENV[K(C,b)]
- elseif op==OP_SETGLOBAL then _ENV[K(C,a)]=R[b]
+ elseif op==OP_GETGLOBAL then R[a]=_ENV[@K@(C,b,R,U)]
+ elseif op==OP_SETGLOBAL then _ENV[@K@(C,a,R,U)]=R[b]
  elseif op==OP_NEWTABLE then R[a]={{}}
  elseif op==OP_GETTABLE then R[a]=R[b][R[c]]
  elseif op==OP_SETTABLE then R[a][R[b]]=R[c]
@@ -206,34 +129,10 @@ while true do
  else error('ferret vm fault',0) end
 end
 end
-dwv(W,{seed})
-return run(W,C,0,{{}},{{}},0)"#,
+@DWV@(@W@,{seed})
+return @RUN@(@W@,@C@,0,{{}},{{}},0)"#,
         seed = seed as u32
-    )
-}
-
-fn words(out: &mut String, values: &[u32]) {
-    out.push('{');
-    for value in values {
-        out.push_str(&value.to_string());
-        out.push(',');
-    }
-    out.push('}');
-}
-
-fn bytes(out: &mut String, values: &[u8]) {
-    out.push('{');
-    for value in values {
-        out.push_str(&value.to_string());
-        out.push(',');
-    }
-    out.push('}');
-}
-
-fn number_text(value: f64) -> String {
-    if value.fract() == 0.0 {
-        format!("{value:.0}")
-    } else {
-        value.to_string()
-    }
+    );
+    syms.apply(&mut code);
+    code
 }
