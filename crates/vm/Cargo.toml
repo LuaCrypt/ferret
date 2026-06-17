@@ -1,0 +1,12 @@
+[package]
+name = "ferret-vm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+ferret-crypto.workspace = true
+ferret-ir.workspace = true
+ferret-util.workspace = true
+serde.workspace = true

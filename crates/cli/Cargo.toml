@@ -1,0 +1,19 @@
+[package]
+name = "ferret-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "ferret"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+ferret-core.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

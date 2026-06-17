@@ -1,0 +1,10 @@
+[package]
+name = "ferret-parse"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+ferret-ir.workspace = true
+ferret-util.workspace = true

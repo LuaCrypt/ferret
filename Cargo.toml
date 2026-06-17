@@ -1,0 +1,31 @@
+[workspace]
+members = [
+    "crates/util",
+    "crates/crypto",
+    "crates/ir",
+    "crates/parse",
+    "crates/vm",
+    "crates/core",
+    "crates/cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Ferret contributors"]
+
+[workspace.dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+ferret-core = { path = "crates/core" }
+ferret-crypto = { path = "crates/crypto" }
+ferret-ir = { path = "crates/ir" }
+ferret-parse = { path = "crates/parse" }
+ferret-util = { path = "crates/util" }
+ferret-vm = { path = "crates/vm" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tempfile = "3.10"
+thiserror = "2.0"

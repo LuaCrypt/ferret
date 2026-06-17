@@ -1,0 +1,7 @@
+-- expect: pass
+-- category: basics
+
+local a = nil
+local b = false
+local c = 'x'
+print('basics_004', a == nil, b or c, not b)
