@@ -216,7 +216,7 @@ fn print_report(
 
 fn print_slowest_runtime_files(timings: &[RuntimeFileTiming], limit: usize) {
     let mut timings = timings.to_vec();
-    timings.sort_by(|left, right| right.obfuscated.cmp(&left.obfuscated));
+    timings.sort_by_key(|timing| std::cmp::Reverse(timing.obfuscated));
     for timing in timings.into_iter().take(limit) {
         let native_ms = timing.native.as_secs_f64() * 1000.0;
         let obfuscated_ms = timing.obfuscated.as_secs_f64() * 1000.0;
