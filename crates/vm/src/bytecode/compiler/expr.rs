@@ -77,8 +77,58 @@ impl Compiler {
         Ok(())
     }
 
+    pub(super) fn write_expr(&mut self, binding: Binding, value: &Expr) -> Result<()> {
+        match binding {
+            Binding::Local(dst) => self.expr_into(dst, value)?,
+            Binding::Cell(dst) => {
+                let src = self.expr(value)?;
+                self.emit(Op::SetCell, dst, src, 0);
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn expr_into(&mut self, dst: u16, expr: &Expr) -> Result<()> {
+        match expr {
+            Expr::Nil => self.load_const_into(dst, Const::Nil)?,
+            Expr::Bool(value) => self.load_const_into(dst, Const::Bool(*value))?,
+            Expr::Number(value) => self.load_const_into(dst, Const::Number(*value))?,
+            Expr::String(value) => self.load_const_into(dst, Const::String(value.clone()))?,
+            Expr::Unary { op, expr } => {
+                let src = self.expr(expr)?;
+                let op = match op {
+                    UnOp::Neg => Op::Neg,
+                    UnOp::Not => Op::Not,
+                    UnOp::Len => Op::Len,
+                    UnOp::BitNot => Op::BitNot,
+                };
+                self.emit(op, dst, src, 0);
+            }
+            Expr::Binary { op, left, right } => self.binary_into(dst, *op, left, right)?,
+            Expr::Var(name) => {
+                let src = self.var(name)?;
+                if src != dst {
+                    self.emit(Op::Move, dst, src, 0);
+                }
+            }
+            _ => {
+                let src = self.expr(expr)?;
+                if src != dst {
+                    self.emit(Op::Move, dst, src, 0);
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn nil(&mut self) -> Result<u16> {
         self.load_const(Const::Nil)
+    }
+
+    fn load_const_into(&mut self, dst: u16, value: Const) -> Result<()> {
+        let key = self.constant(value)?;
+        self.emit(Op::LoadK, dst, key, 0);
+        Ok(())
     }
 
     fn var(&mut self, name: &str) -> Result<u16> {
@@ -142,6 +192,11 @@ impl Compiler {
 
     fn binary(&mut self, op: BinOp, left: &Expr, right: &Expr) -> Result<u16> {
         let dst = self.alloc();
+        self.binary_into(dst, op, left, right)?;
+        Ok(dst)
+    }
+
+    fn binary_into(&mut self, dst: u16, op: BinOp, left: &Expr, right: &Expr) -> Result<()> {
         match op {
             BinOp::Ne => {
                 let tmp = self.binary(BinOp::Eq, left, right)?;
@@ -149,13 +204,18 @@ impl Compiler {
             }
             BinOp::Gt => self.reverse_compare(Op::Lt, dst, left, right)?,
             BinOp::Ge => self.reverse_compare(Op::Le, dst, left, right)?,
+            _ if const_bin_op(op).is_some() && scalar_const(right).is_some() => {
+                let left = self.expr(left)?;
+                let key = self.constant(scalar_const(right).expect("checked above"))?;
+                self.emit(const_bin_op(op).expect("checked above"), dst, left, key);
+            }
             _ => {
                 let left = self.expr(left)?;
                 let right = self.expr(right)?;
                 self.emit(bin_op(op)?, dst, left, right);
             }
         }
-        Ok(dst)
+        Ok(())
     }
 
     fn reverse_compare(&mut self, op: Op, dst: u16, left: &Expr, right: &Expr) -> Result<()> {
@@ -185,5 +245,26 @@ impl Compiler {
                 self.emit(Op::SetCell, dst, src, 0);
             }
         }
+    }
+}
+
+fn const_bin_op(op: BinOp) -> Option<Op> {
+    Some(match op {
+        BinOp::Add => Op::AddK,
+        BinOp::Sub => Op::SubK,
+        BinOp::Mul => Op::MulK,
+        BinOp::Div => Op::DivK,
+        BinOp::FloorDiv => Op::FloorDivK,
+        BinOp::Mod => Op::ModK,
+        BinOp::Pow => Op::PowK,
+        _ => return None,
+    })
+}
+
+fn scalar_const(expr: &Expr) -> Option<Const> {
+    match expr {
+        Expr::Number(value) => Some(Const::Number(*value)),
+        Expr::String(value) => Some(Const::String(value.clone())),
+        _ => None,
     }
 }

@@ -48,6 +48,12 @@ To include native Lua vs generated VM runtime overhead:
 cargo run --release -p ferret-cli -- bench --runtime-overhead --runtime-runs 3 tests/bench/runtime_overhead.lua
 ```
 
+For repeated corpus timing with known semantic mismatches excluded from perf:
+
+```sh
+cargo run --release -p ferret-cli -- bench --runtime-overhead --runtime-runs 3 --runtime-inner-runs 200 --runtime-known-mismatches tests/bench/runtime_mismatch_exclusions.txt tests/fixtures tests/scripts tests/lua54_conformance
+```
+
 ## Development
 
 All public obfuscation is VM-only. Unsupported Lua features fail with a clear

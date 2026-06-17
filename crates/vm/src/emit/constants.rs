@@ -26,7 +26,7 @@ pub(super) fn constants(
         out.push_str(&slot.to_string());
         out.push(',');
     }
-    out.push_str("}}");
+    out.push_str("},{}}");
 }
 
 fn constant(out: &mut String, constant: &Const, seed: u64, layout: &BTreeMap<Op, u32>) {

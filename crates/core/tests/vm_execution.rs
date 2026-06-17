@@ -60,7 +60,8 @@ fn deterministic_with_fixed_seed() {
     assert!(!first.code.contains("local W="));
     assert!(!first.code.contains("local C="));
     assert!(!first.code.contains("function dwv"));
-    assert!(first.code.contains("C[1][C[2][i+1]]"));
+    assert!(first.code.contains("C[1][C[2][k]]"));
+    assert!(first.code.contains("local cache=C[3]"));
 
     let third = obfuscate(
         &source,

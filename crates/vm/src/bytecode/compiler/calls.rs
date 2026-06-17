@@ -17,6 +17,18 @@ impl Compiler {
         Ok(dst)
     }
 
+    pub(super) fn call_global_stmt(&mut self, callee: &Expr, args: &[Expr]) -> Result<bool> {
+        let Expr::Var(name) = callee else {
+            return Ok(false);
+        };
+        let key = self.constant(Const::String(name.clone()))?;
+        let arg_start = self.next_reg;
+        self.reserve(args.len() as u16);
+        self.move_args(arg_start, args)?;
+        self.emit(Op::CallGlobal, key, arg_start, args.len() as u16);
+        Ok(true)
+    }
+
     pub(super) fn call3_into(&mut self, callee: &Expr, args: &[Expr], dst: u16) -> Result<()> {
         let func = self.expr(callee)?;
         let arg_start = self.next_reg;
@@ -74,8 +86,7 @@ impl Compiler {
 
     fn move_args(&mut self, start: u16, args: &[Expr]) -> Result<()> {
         for (index, arg) in args.iter().enumerate() {
-            let src = self.expr(arg)?;
-            self.emit(Op::Move, start + index as u16, src, 0);
+            self.expr_into(start + index as u16, arg)?;
         }
         Ok(())
     }

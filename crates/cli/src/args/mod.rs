@@ -49,6 +49,15 @@ pub struct BenchArgs {
     #[arg(long, default_value_t = 3)]
     pub runtime_runs: usize,
 
+    #[arg(long, default_value_t = 1)]
+    pub runtime_inner_runs: usize,
+
+    #[arg(long)]
+    pub runtime_known_mismatches: Option<PathBuf>,
+
+    #[arg(long, default_value_t = 0)]
+    pub runtime_report_slowest: usize,
+
     #[arg(long, default_value = "lua")]
     pub lua: PathBuf,
 }

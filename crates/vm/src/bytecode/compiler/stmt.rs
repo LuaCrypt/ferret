@@ -1,7 +1,12 @@
-use ferret_ir::{Expr, Op, Stmt};
+use ferret_ir::{BinOp, Expr, Op, Stmt};
 use ferret_util::{FerretError, Result};
 
 use super::{Binding, Compiler};
+
+enum FalseJump {
+    B(usize),
+    C(usize),
+}
 
 impl Compiler {
     pub(super) fn if_stmt(
@@ -10,12 +15,14 @@ impl Compiler {
         then_body: &[Stmt],
         else_body: &[Stmt],
     ) -> Result<()> {
-        let cond = self.expr(cond)?;
-        let false_jump = self.emit(Op::JmpFalse, cond, 0, 0);
+        if self.add_select_if(cond, then_body, else_body)? {
+            return Ok(());
+        }
+        let false_jump = self.false_jump(cond)?;
         self.stmts(then_body)?;
         let end_jump = self.emit(Op::Jmp, 0, 0, 0);
         let else_start = self.instructions.len() as u16;
-        self.patch_b(false_jump, else_start);
+        self.patch_false_jump(false_jump, else_start);
         self.stmts(else_body)?;
         let end = self.instructions.len() as u16;
         self.patch_a(end_jump, end);
@@ -24,13 +31,12 @@ impl Compiler {
 
     pub(super) fn while_stmt(&mut self, cond: &Expr, body: &[Stmt]) -> Result<()> {
         let start = self.instructions.len() as u16;
-        let cond = self.expr(cond)?;
-        let end_jump = self.emit(Op::JmpFalse, cond, 0, 0);
+        let end_jump = self.false_jump(cond)?;
         self.breaks.push(Vec::new());
         self.stmts(body)?;
         self.emit(Op::Jmp, start, 0, 0);
         let end = self.instructions.len() as u16;
-        self.patch_b(end_jump, end);
+        self.patch_false_jump(end_jump, end);
         self.patch_breaks(end);
         Ok(())
     }
@@ -39,8 +45,7 @@ impl Compiler {
         let start = self.instructions.len() as u16;
         self.breaks.push(Vec::new());
         self.stmts(body)?;
-        let cond = self.expr(cond)?;
-        self.emit(Op::JmpFalse, cond, start, 0);
+        self.false_jump_to(cond, start)?;
         let end = self.instructions.len() as u16;
         self.patch_breaks(end);
         Ok(())
@@ -54,20 +59,40 @@ impl Compiler {
         step: &Expr,
         body: &[Stmt],
     ) -> Result<()> {
-        let var = self.alloc();
-        self.locals.insert(name.to_string(), Binding::Local(var));
         let start_reg = self.expr(start)?;
-        self.emit(Op::Move, var, start_reg, 0);
         let end_reg = self.expr(end)?;
         let step_reg = self.expr(step)?;
+        let var = self.reserve(3);
+        self.locals.insert(name.to_string(), Binding::Local(var));
+        self.emit(Op::Move, var, start_reg, 0);
+        self.emit(Op::Move, var + 1, end_reg, 0);
+        self.emit(Op::Move, var + 2, step_reg, 0);
+        let positive_step = matches!(step, Expr::Number(value) if *value >= 0.0);
+        let check_op = if positive_step {
+            Op::ForCheckPos
+        } else {
+            Op::ForCheck
+        };
+        let step_op = if positive_step {
+            Op::ForStepPos
+        } else {
+            Op::ForStep
+        };
+        let exit = self.emit(check_op, var, 0, 0);
         let loop_start = self.instructions.len() as u16;
-        let cond = self.alloc();
-        self.emit(Op::Le, cond, var, end_reg);
-        let exit = self.emit(Op::JmpFalse, cond, 0, 0);
+        if positive_step {
+            if let Some(acc) = self.for_add_accumulator(name, body) {
+                self.breaks.push(Vec::new());
+                self.emit(Op::ForStepAddPos, acc, var, loop_start);
+                let done = self.instructions.len() as u16;
+                self.patch_b(exit, done);
+                self.patch_breaks(done);
+                return Ok(());
+            }
+        }
         self.breaks.push(Vec::new());
         self.stmts(body)?;
-        self.emit(Op::Add, var, var, step_reg);
-        self.emit(Op::Jmp, loop_start, 0, 0);
+        self.emit(step_op, var, loop_start, 0);
         let done = self.instructions.len() as u16;
         self.patch_b(exit, done);
         self.patch_breaks(done);
@@ -175,4 +200,42 @@ impl Compiler {
         }
         Ok(())
     }
+
+    fn false_jump(&mut self, cond: &Expr) -> Result<FalseJump> {
+        self.false_jump_to(cond, 0)
+    }
+
+    fn false_jump_to(&mut self, cond: &Expr, target: u16) -> Result<FalseJump> {
+        if let Expr::Binary { op, left, right } = cond {
+            if let Some((jump_op, left, right)) = comparison_false_jump(*op, left, right) {
+                let left = self.expr(left)?;
+                let right = self.expr(right)?;
+                return Ok(FalseJump::C(self.emit(jump_op, left, right, target)));
+            }
+        }
+        let cond = self.expr(cond)?;
+        Ok(FalseJump::B(self.emit(Op::JmpFalse, cond, target, 0)))
+    }
+
+    fn patch_false_jump(&mut self, jump: FalseJump, target: u16) {
+        match jump {
+            FalseJump::B(index) => self.patch_b(index, target),
+            FalseJump::C(index) => self.patch_c(index, target),
+        }
+    }
+}
+
+fn comparison_false_jump<'a>(
+    op: BinOp,
+    left: &'a Expr,
+    right: &'a Expr,
+) -> Option<(Op, &'a Expr, &'a Expr)> {
+    Some(match op {
+        BinOp::Eq => (Op::JmpNotEq, left, right),
+        BinOp::Lt => (Op::JmpNotLt, left, right),
+        BinOp::Le => (Op::JmpNotLe, left, right),
+        BinOp::Gt => (Op::JmpNotLt, right, left),
+        BinOp::Ge => (Op::JmpNotLe, right, left),
+        _ => return None,
+    })
 }

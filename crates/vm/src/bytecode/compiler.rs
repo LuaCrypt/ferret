@@ -1,7 +1,9 @@
 mod calls;
 mod captures;
 mod expr;
+mod patterns;
 mod stmt;
+mod superblocks;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -20,17 +22,16 @@ pub fn compile(program: &Program) -> Result<CompileReport> {
     compiler.stmts(&program.body)?;
     compiler.finish_gotos()?;
     compiler.emit(Op::Halt, 0, 0, 0);
-    Ok(CompileReport {
-        chunk: Chunk {
-            constants: compiler.constants,
-            instructions: compiler.instructions,
-            registers: compiler.max_reg,
-            params: 0,
-        },
-    })
+    let mut chunk = Chunk {
+        constants: compiler.constants,
+        instructions: compiler.instructions,
+        registers: compiler.max_reg,
+        params: 0,
+    };
+    superblocks::apply(&mut chunk)?;
+    Ok(CompileReport { chunk })
 }
 
-#[derive(Default)]
 struct Compiler {
     constants: Vec<Const>,
     instructions: Vec<Instr>,
@@ -41,6 +42,22 @@ struct Compiler {
     gotos: Vec<(String, usize)>,
     next_reg: u16,
     max_reg: u16,
+}
+
+impl Default for Compiler {
+    fn default() -> Self {
+        Self {
+            constants: Vec::new(),
+            instructions: Vec::new(),
+            locals: BTreeMap::new(),
+            upvalues: BTreeMap::new(),
+            breaks: Vec::new(),
+            labels: BTreeMap::new(),
+            gotos: Vec::new(),
+            next_reg: 1,
+            max_reg: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,17 +98,41 @@ impl Compiler {
         match stmt {
             Stmt::Local { names, values } => {
                 self.define_locals(names);
-                let values = self.value_regs(values, names.len())?;
-                for (index, name) in names.iter().enumerate() {
-                    let src = match values.get(index).copied() {
-                        Some(src) => src,
-                        None => self.nil()?,
-                    };
-                    let binding = self.locals[name];
-                    self.write_binding(binding, src);
+                let expands_tail_call = matches!(values.last(), Some(ferret_ir::Expr::Call { .. }))
+                    && names.len() > values.len();
+                if expands_tail_call {
+                    let values = self.value_regs(values, names.len())?;
+                    for (index, name) in names.iter().enumerate() {
+                        let src = match values.get(index).copied() {
+                            Some(src) => src,
+                            None => self.nil()?,
+                        };
+                        let binding = self.locals[name];
+                        self.write_binding(binding, src);
+                    }
+                } else {
+                    for (index, name) in names.iter().enumerate() {
+                        if let Some(value) = values.get(index) {
+                            if matches!(value, ferret_ir::Expr::Function { .. }) {
+                                let src = self.expr(value)?;
+                                let binding = self.locals[name];
+                                self.write_binding(binding, src);
+                            } else {
+                                let binding = self.locals[name];
+                                self.write_expr(binding, value)?;
+                            }
+                        } else {
+                            let binding = self.locals[name];
+                            let nil = self.nil()?;
+                            self.write_binding(binding, nil);
+                        }
+                    }
                 }
             }
             Stmt::Assign { targets, values } => {
+                if self.special_assign(targets, values)? {
+                    return Ok(());
+                }
                 let values = self.value_regs(values, targets.len())?;
                 for (index, target) in targets.iter().enumerate() {
                     let src = match values.get(index).copied() {
@@ -108,6 +149,11 @@ impl Compiler {
             Stmt::Label(name) => self.label_stmt(name),
             Stmt::Goto(name) => self.goto_stmt(name)?,
             Stmt::Expr(expr) => {
+                if let Stmt::Expr(ferret_ir::Expr::Call { callee, args }) = stmt {
+                    if self.call_global_stmt(callee, args)? {
+                        return Ok(());
+                    }
+                }
                 self.expr(expr)?;
             }
             Stmt::If {
@@ -146,7 +192,7 @@ impl Compiler {
     fn alloc(&mut self) -> u16 {
         let reg = self.next_reg;
         self.next_reg = self.next_reg.saturating_add(1);
-        self.max_reg = self.max_reg.max(self.next_reg);
+        self.max_reg = self.max_reg.max(reg);
         reg
     }
 
@@ -176,6 +222,10 @@ impl Compiler {
 
     fn patch_b(&mut self, index: usize, target: u16) {
         self.instructions[index].b = target;
+    }
+
+    fn patch_c(&mut self, index: usize, target: u16) {
+        self.instructions[index].c = target;
     }
 
     fn patch_breaks(&mut self, target: u16) {

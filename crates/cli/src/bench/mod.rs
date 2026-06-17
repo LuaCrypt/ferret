@@ -1,6 +1,6 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
@@ -9,10 +9,9 @@ use ferret_core::{obfuscate, ObfuscationOptions, Preset};
 
 use crate::args::BenchArgs;
 
-struct RuntimeBench {
-    lua: PathBuf,
-    runs: usize,
-}
+mod runtime;
+
+use runtime::{bench_runtime, check_lua, load_known_mismatches, RuntimeBench};
 
 #[derive(Default)]
 struct BenchStats {
@@ -24,10 +23,20 @@ struct BenchStats {
     output_bytes: usize,
     obfuscation_elapsed: Duration,
     runtime_files: usize,
+    runtime_known_mismatches: usize,
+    runtime_unknown_mismatches: usize,
     runtime_mismatches: usize,
     runtime_failed: usize,
     runtime_native: Duration,
     runtime_obfuscated: Duration,
+    runtime_timings: Vec<RuntimeFileTiming>,
+}
+
+#[derive(Clone)]
+struct RuntimeFileTiming {
+    path: String,
+    native: Duration,
+    obfuscated: Duration,
 }
 
 pub fn run_bench(args: BenchArgs) -> Result<()> {
@@ -37,10 +46,21 @@ pub fn run_bench(args: BenchArgs) -> Result<()> {
         if args.runtime_runs == 0 {
             bail!("--runtime-runs must be at least 1");
         }
+        if args.runtime_inner_runs == 0 {
+            bail!("--runtime-inner-runs must be at least 1");
+        }
         check_lua(&args.lua)?;
+        let known_mismatches = if let Some(path) = &args.runtime_known_mismatches {
+            load_known_mismatches(path)?
+        } else {
+            BTreeSet::new()
+        };
         Some(RuntimeBench {
             lua: args.lua.clone(),
             runs: args.runtime_runs,
+            inner_runs: args.runtime_inner_runs,
+            known_mismatches,
+            report_slowest: args.runtime_report_slowest,
         })
     } else {
         None
@@ -66,6 +86,12 @@ pub fn run_bench(args: BenchArgs) -> Result<()> {
         runtime.as_ref(),
         &stats,
     );
+    if stats.runtime_unknown_mismatches > 0 {
+        bail!(
+            "runtime bench found {} unknown stdout mismatch(es)",
+            stats.runtime_unknown_mismatches
+        );
+    }
     Ok(())
 }
 
@@ -101,84 +127,6 @@ fn bench_file(
         }
     }
     Ok(())
-}
-
-fn bench_runtime(
-    original_path: &Path,
-    obfuscated_code: &str,
-    runtime: &RuntimeBench,
-    stats: &mut BenchStats,
-) -> Result<()> {
-    let temp = tempfile::NamedTempFile::new().context("failed to create runtime bench file")?;
-    fs::write(temp.path(), obfuscated_code).context("failed to write runtime bench file")?;
-
-    let original = run_lua(&runtime.lua, original_path)
-        .with_context(|| format!("failed to run native lua for {}", original_path.display()))?;
-    let obfuscated = run_lua(&runtime.lua, temp.path()).with_context(|| {
-        format!(
-            "failed to run obfuscated lua for {}",
-            original_path.display()
-        )
-    })?;
-    if !original.status.success() || !obfuscated.status.success() {
-        stats.runtime_failed += 1;
-        eprintln!(
-            "runtime bench failure: {}: native_status={:?} obfuscated_status={:?}",
-            original_path.display(),
-            original.status.code(),
-            obfuscated.status.code()
-        );
-        return Ok(());
-    }
-    if original.stdout != obfuscated.stdout {
-        stats.runtime_mismatches += 1;
-        eprintln!("runtime bench mismatch: {}", original_path.display());
-        return Ok(());
-    }
-
-    let native = measure_lua(&runtime.lua, original_path, runtime.runs)?;
-    let obfuscated = measure_lua(&runtime.lua, temp.path(), runtime.runs)?;
-    stats.runtime_files += 1;
-    stats.runtime_native += native;
-    stats.runtime_obfuscated += obfuscated;
-    Ok(())
-}
-
-fn check_lua(lua: &Path) -> Result<()> {
-    let output = Command::new(lua)
-        .arg("-v")
-        .output()
-        .with_context(|| format!("failed to run lua executable {}", lua.display()))?;
-    if !output.status.success() {
-        bail!(
-            "lua executable {} exited with status {:?}",
-            lua.display(),
-            output.status.code()
-        );
-    }
-    Ok(())
-}
-
-fn run_lua(lua: &Path, path: &Path) -> Result<std::process::Output> {
-    Command::new(lua)
-        .arg(path)
-        .output()
-        .with_context(|| format!("failed to run {} {}", lua.display(), path.display()))
-}
-
-fn measure_lua(lua: &Path, path: &Path, runs: usize) -> Result<Duration> {
-    let start = Instant::now();
-    for _ in 0..runs {
-        let output = run_lua(lua, path)?;
-        if !output.status.success() {
-            bail!(
-                "runtime measurement failed for {} with status {:?}",
-                path.display(),
-                output.status.code()
-            );
-        }
-    }
-    Ok(start.elapsed())
 }
 
 fn collect_lua(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
@@ -246,11 +194,41 @@ fn print_report(
         };
         println!("runtime_files: {}", stats.runtime_files);
         println!("runtime_mismatches: {}", stats.runtime_mismatches);
+        println!(
+            "runtime_known_mismatches: {}",
+            stats.runtime_known_mismatches
+        );
+        println!(
+            "runtime_unknown_mismatches: {}",
+            stats.runtime_unknown_mismatches
+        );
         println!("runtime_failed: {}", stats.runtime_failed);
         println!("runtime_runs_per_file: {}", runtime.runs);
+        println!("runtime_inner_runs: {}", runtime.inner_runs);
         println!("runtime_native_ms: {:.3}", native_ms);
         println!("runtime_obfuscated_ms: {:.3}", obfuscated_ms);
         println!("runtime_overhead_x: {:.2}", runtime_overhead);
+        if runtime.report_slowest > 0 {
+            print_slowest_runtime_files(&stats.runtime_timings, runtime.report_slowest);
+        }
+    }
+}
+
+fn print_slowest_runtime_files(timings: &[RuntimeFileTiming], limit: usize) {
+    let mut timings = timings.to_vec();
+    timings.sort_by(|left, right| right.obfuscated.cmp(&left.obfuscated));
+    for timing in timings.into_iter().take(limit) {
+        let native_ms = timing.native.as_secs_f64() * 1000.0;
+        let obfuscated_ms = timing.obfuscated.as_secs_f64() * 1000.0;
+        let overhead = if native_ms > 0.0 {
+            obfuscated_ms / native_ms
+        } else {
+            0.0
+        };
+        println!(
+            "runtime_slowest_file: {} native_ms={:.3} obfuscated_ms={:.3} overhead_x={:.2}",
+            timing.path, native_ms, obfuscated_ms, overhead
+        );
     }
 }
 
