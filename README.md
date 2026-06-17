@@ -42,6 +42,12 @@ To benchmark the OSS obfuscator over Lua corpora:
 cargo run -p ferret-cli -- bench tests/fixtures tests/scripts tests/lua54_conformance
 ```
 
+To include native Lua vs generated VM runtime overhead:
+
+```sh
+cargo run --release -p ferret-cli -- bench --runtime-overhead --runtime-runs 3 tests/bench/runtime_overhead.lua
+```
+
 ## Development
 
 All public obfuscation is VM-only. Unsupported Lua features fail with a clear

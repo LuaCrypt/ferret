@@ -42,4 +42,13 @@ pub struct BenchArgs {
 
     #[arg(long, default_value = "strong")]
     pub preset: String,
+
+    #[arg(long)]
+    pub runtime_overhead: bool,
+
+    #[arg(long, default_value_t = 3)]
+    pub runtime_runs: usize,
+
+    #[arg(long, default_value = "lua")]
+    pub lua: PathBuf,
 }

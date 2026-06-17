@@ -42,3 +42,29 @@ fn cli_bench_reports_fixture_summary() {
     assert!(stdout.contains("Ferret OSS obfuscator bench"));
     assert!(stdout.contains("supported: 3"));
 }
+
+#[test]
+fn cli_bench_reports_runtime_overhead() {
+    if Command::new("lua").arg("-v").output().is_err() {
+        return;
+    }
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("tests/fixtures/control.lua");
+    let output = Command::new(env!("CARGO_BIN_EXE_ferret"))
+        .args([
+            "bench",
+            "--runtime-overhead",
+            "--runtime-runs",
+            "1",
+            fixture.to_str().unwrap(),
+            "--seed",
+            "11",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("runtime_files: 1"));
+    assert!(stdout.contains("runtime_overhead_x:"));
+}
