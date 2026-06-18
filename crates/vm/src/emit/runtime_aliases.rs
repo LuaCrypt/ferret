@@ -1,6 +1,7 @@
 use ferret_ir::Op;
 
 use crate::emit::opcodes::OpcodePlan;
+use crate::emit::runtime_handlers as handlers;
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct RuntimeAliases {
@@ -18,22 +19,26 @@ pub(super) struct RuntimeAliases {
 pub(super) fn runtime_aliases(opcodes: &OpcodePlan) -> RuntimeAliases {
     RuntimeAliases {
         halt: branches(opcodes, Op::Halt, "return"),
-        loadk: branches(opcodes, Op::LoadK, "R[a]=@K@(C,b,R,U)"),
-        move_: branches(opcodes, Op::Move, "R[a]=R[b]"),
-        getglobal: branches(opcodes, Op::GetGlobal, "R[a]=_env[@K@(C,b,R,U)]"),
-        newtable: branches(opcodes, Op::NewTable, "R[a]={}"),
-        gettable: branches(opcodes, Op::GetTable, "R[a]=R[b][R[c]]"),
-        settable: branches(opcodes, Op::SetTable, "R[a][R[b]]=R[c]"),
+        loadk: branches(opcodes, Op::LoadK, &handlers::loadk_body("a", "b")),
+        move_: branches(opcodes, Op::Move, &handlers::move_body("a", "b")),
+        getglobal: branches(opcodes, Op::GetGlobal, &handlers::getglobal_body("a", "b")),
+        newtable: branches(opcodes, Op::NewTable, &handlers::newtable_body("a")),
+        gettable: branches(
+            opcodes,
+            Op::GetTable,
+            &handlers::gettable_body("a", "b", "c"),
+        ),
+        settable: branches(
+            opcodes,
+            Op::SetTable,
+            &handlers::settable_body("a", "b", "c"),
+        ),
         callglobal: branches(
             opcodes,
             Op::CallGlobal,
-            "local f=_env[@K@(C,a,R,U)]; local s=b; if c==0 then f() elseif c==1 then f(R[s]) elseif c==2 then f(R[s],R[s+1]) elseif c==3 then f(R[s],R[s+1],R[s+2]) elseif c==4 then f(R[s],R[s+1],R[s+2],R[s+3]) else local A={}; for i=1,c do A[i]=R[s+i-1] end; f(_u(A,1,c)) end",
+            &handlers::call_global_body("a", "b", "c", true),
         ),
-        return_: branches(
-            opcodes,
-            Op::Return,
-            "if b==0 then return end; return _u(R,a,a+b-1)",
-        ),
+        return_: branches(opcodes, Op::Return, &handlers::return_body("a", "b")),
     }
 }
 

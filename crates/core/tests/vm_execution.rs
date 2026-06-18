@@ -1,8 +1,10 @@
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use ferret_core::{obfuscate, ObfuscationOptions};
+
+mod support;
+use support::{assert_hardened_output_shape, lua_available, run_lua, run_lua_source};
 
 #[test]
 fn vm_matches_supported_fixtures() {
@@ -185,26 +187,6 @@ fn rejects_dynamic_loader() {
     assert!(err.to_string().contains("load"));
 }
 
-fn assert_hardened_output_shape(code: &str, source_literals: &[&str]) {
-    for needle in [
-        "OP_",
-        "LOADK",
-        "CALLGLOBAL",
-        "_f_",
-        "ferret vm",
-        "local cache",
-        "if false then",
-        "while true do",
-        "W[1],W[2],W[3],W[4]",
-        "C[1][C[2]",
-    ] {
-        assert!(!code.contains(needle), "{needle}");
-    }
-    for literal in source_literals {
-        assert!(!code.contains(literal), "{literal}");
-    }
-}
-
 fn fixture_path(name: &str) -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
@@ -259,18 +241,4 @@ fn lua54_path(name: &str) -> std::path::PathBuf {
         .join("../..")
         .join("tests/lua54_conformance")
         .join(name)
-}
-
-fn lua_available() -> bool {
-    Command::new("lua").arg("-v").output().is_ok()
-}
-
-fn run_lua(path: &Path) -> std::process::Output {
-    Command::new("lua").arg(path).output().unwrap()
-}
-
-fn run_lua_source(source: &str) -> std::process::Output {
-    let temp = tempfile::NamedTempFile::new().unwrap();
-    fs::write(temp.path(), source).unwrap();
-    run_lua(temp.path())
 }

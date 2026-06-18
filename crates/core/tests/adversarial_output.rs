@@ -1,8 +1,10 @@
 use std::fs;
-use std::path::Path;
-use std::process::Command;
 
 use ferret_core::{obfuscate, ObfuscationOptions};
+
+mod support;
+use support::static_findings;
+use support::{lua_available, old_helper_hook_targets, run_lua, simple_bytecode_tuple_locator};
 
 #[test]
 fn strong_output_resists_known_static_scanners() {
@@ -26,7 +28,7 @@ print("adv", t[1], t[2], t[3] == nil, t[4])
         },
     )
     .unwrap();
-    assert!(static_findings(&result.code).is_empty());
+    assert!(static_findings(&result.code, ADVERSARIAL_LITERALS).is_empty());
     assert!(!simple_bytecode_tuple_locator(&result.code));
     assert!(old_helper_hook_targets(&result.code).is_empty());
     assert!(result.metadata.dump_resistance_level > 0);
@@ -47,49 +49,9 @@ print("adv", t[1], t[2], t[3] == nil, t[4])
 #[test]
 fn scanner_rejects_archived_weak_shape() {
     let weak = include_str!("../../../tests/adversarial/weak_output_sample.lua");
-    assert!(!static_findings(weak).is_empty());
+    assert!(!static_findings(weak, ADVERSARIAL_LITERALS).is_empty());
     assert!(simple_bytecode_tuple_locator(weak));
     assert!(!old_helper_hook_targets(weak).is_empty());
 }
 
-fn static_findings(code: &str) -> Vec<&'static str> {
-    [
-        "OP_",
-        "LOADK",
-        "CALLGLOBAL",
-        "_f_",
-        "ferret vm",
-        "local cache",
-        "if false then",
-        "W[1],W[2],W[3],W[4]",
-        "C[1][C[2]",
-        "secret_literal",
-        "tail_secret",
-        "root_secret",
-    ]
-    .into_iter()
-    .filter(|needle| code.contains(needle))
-    .collect()
-}
-
-fn simple_bytecode_tuple_locator(code: &str) -> bool {
-    code.contains("local O,A,B,C")
-        || code.contains("for i=1,#W,4")
-        || code.contains("O[j]=W[i]")
-        || code.contains("W[1],W[2],W[3],W[4]")
-}
-
-fn old_helper_hook_targets(code: &str) -> Vec<&'static str> {
-    ["_f_decode", "_f_pack", "_f_run", "function K"]
-        .into_iter()
-        .filter(|needle| code.contains(needle))
-        .collect()
-}
-
-fn lua_available() -> bool {
-    Command::new("lua").arg("-v").output().is_ok()
-}
-
-fn run_lua(path: &Path) -> std::process::Output {
-    Command::new("lua").arg(path).output().unwrap()
-}
+const ADVERSARIAL_LITERALS: &[&str] = &["secret_literal", "tail_secret", "root_secret"];

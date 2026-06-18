@@ -1,6 +1,7 @@
 use ferret_output::{BytecodeLayout, ConstantLayout, RuntimeTemplateVariant};
 
 use crate::emit::runtime_aliases::RuntimeAliases;
+use crate::emit::runtime_handlers as handlers;
 use crate::emit::runtime_shape::apply_runtime_shape;
 use crate::emit::symbols::Symbols;
 
@@ -137,8 +138,8 @@ while true do
    elseif mop==OP_SETCELL then R[ma][1]=R[mb]
    elseif mop==OP_GETUP then R[ma]=U[mb+1][1]
    elseif mop==OP_SETUP then U[ma+1][1]=R[mb]
-   elseif mop==OP_CALL then local s=(mc>>8)&255; local n=mc&255; if n==0 then R[ma]=R[mb]() elseif n==1 then R[ma]=R[mb](R[s]) elseif n==2 then R[ma]=R[mb](R[s],R[s+1]) elseif n==3 then R[ma]=R[mb](R[s],R[s+1],R[s+2]) elseif n==4 then R[ma]=R[mb](R[s],R[s+1],R[s+2],R[s+3]) else error(0,0) end
-   elseif mop==OP_CALLGLOBAL then local f=_env[@K@(C,ma,R,U)]; local s=mb; if mc==0 then f() elseif mc==1 then f(R[s]) elseif mc==2 then f(R[s],R[s+1]) elseif mc==3 then f(R[s],R[s+1],R[s+2]) elseif mc==4 then f(R[s],R[s+1],R[s+2],R[s+3]) else error(0,0) end
+   elseif mop==OP_CALL then {super_call_body}
+   elseif mop==OP_CALLGLOBAL then {super_callglobal_body}
    elseif mop==OP_AND then R[ma]=R[mb] and R[mc]
    elseif mop==OP_OR then R[ma]=R[mb] or R[mc]
    elseif mop==OP_BITAND then R[ma]=R[mb]&R[mc]
@@ -152,12 +153,12 @@ while true do
    elseif mop==OP_LEN then R[ma]=#R[mb]
    elseif mop==OP_BITNOT then R[ma]=~R[mb]
    elseif mop==OP_HALT then return
-   elseif mop==OP_RETURN then if mb==0 then return end; return _u(R,ma,ma+mb-1)
+   elseif mop==OP_RETURN then {super_return_body}
    elseif mop==OP_RETURNVARARG then local T={{}}; local n=mb; for i=1,mb do T[i]=R[ma+i-1] end; for i=P+1,N do n=n+1; T[n]=_sel(i,...) end; return _u(T,1,n)
    else error(0,0) end
   end
- elseif op==OP_MOVE then R[a]=R[b]
-{alias_move} elseif op==OP_LOADK then R[a]=@K@(C,b,R,U)
+ elseif op==OP_MOVE then {move_body}
+{alias_move} elseif op==OP_LOADK then {loadk_body}
 {alias_loadk}
  elseif op==OP_FORCHECKPOS then if R[a]>R[a+1] then pc=b+1 end
  elseif op==OP_FORSTEPPOS then R[a]=R[a]+R[a+2]; if R[a]<=R[a+1] then pc=b+1 end
@@ -191,12 +192,12 @@ while true do
  elseif op==OP_JMP then pc=a+1
  elseif op==OP_FORCHECK then local s=R[a+2]; local v=R[a]; local l=R[a+1]; if not ((s>=0 and v<=l) or (s<0 and v>=l)) then pc=b+1 end
  elseif op==OP_FORSTEP then R[a]=R[a]+R[a+2]; local s=R[a+2]; local v=R[a]; local l=R[a+1]; if (s>=0 and v<=l) or (s<0 and v>=l) then pc=b+1 end
- elseif op==OP_GETGLOBAL then R[a]=_env[@K@(C,b,R,U)]
+ elseif op==OP_GETGLOBAL then {getglobal_body}
 {alias_getglobal}
  elseif op==OP_SETGLOBAL then _env[@K@(C,a,R,U)]=R[b]
- elseif op==OP_NEWTABLE then R[a]={{}}
-{alias_newtable} elseif op==OP_GETTABLE then R[a]=R[b][R[c]]
-{alias_gettable} elseif op==OP_SETTABLE then R[a][R[b]]=R[c]
+ elseif op==OP_NEWTABLE then {newtable_body}
+{alias_newtable} elseif op==OP_GETTABLE then {gettable_body}
+{alias_gettable} elseif op==OP_SETTABLE then {settable_body}
 {alias_settable}
  elseif op==OP_GENERICFOR2JMP then local v1,v2=R[b](R[b+1],R[b+2]); R[b+2]=v1; if not v1 then pc=c+1 else R[a]=v1; R[a+1]=v2 end
  elseif op==OP_GENERICFOR then if c==1 then local v1=R[b](R[b+1],R[b+2]); R[b+2]=v1; R[a]=v1 elseif c==2 then local v1,v2=R[b](R[b+1],R[b+2]); R[b+2]=v1; R[a]=v1; R[a+1]=v2 elseif c==3 then local v1,v2,v3=R[b](R[b+1],R[b+2]); R[b+2]=v1; R[a]=v1; R[a+1]=v2; R[a+2]=v3 else local V={{R[b](R[b+1],R[b+2])}}; R[b+2]=V[1]; for i=1,c do R[a+i-1]=V[i] end end
@@ -205,13 +206,13 @@ while true do
  elseif op==OP_SETCELL then R[a][1]=R[b]
  elseif op==OP_GETUP then R[a]=U[b+1][1]
  elseif op==OP_SETUP then U[a+1][1]=R[b]
- elseif op==OP_SETTABLECALL then local n=c&255; local ix=(c>>8)&255; local f=R[b-1]; local rn,V; if n==0 then rn,V=@PR@(f()) elseif n==1 then rn,V=@PR@(f(R[b])) elseif n==2 then rn,V=@PR@(f(R[b],R[b+1])) elseif n==3 then rn,V=@PR@(f(R[b],R[b+1],R[b+2])) elseif n==4 then rn,V=@PR@(f(R[b],R[b+1],R[b+2],R[b+3])) else local A={{}}; for i=1,n do A[i]=R[b+i-1] end; rn,V=@PR@(f(_u(A,1,n))) end; for i=1,rn do R[a][ix+i-1]=V[i] end
- elseif op==OP_RETURNCALL then local n=c&255; local fc=(c>>8)&255; local f=R[b-1]; local rn,V; if n==0 then rn,V=@PR@(f()) elseif n==1 then rn,V=@PR@(f(R[b])) elseif n==2 then rn,V=@PR@(f(R[b],R[b+1])) elseif n==3 then rn,V=@PR@(f(R[b],R[b+1],R[b+2])) elseif n==4 then rn,V=@PR@(f(R[b],R[b+1],R[b+2],R[b+3])) else local A={{}}; for i=1,n do A[i]=R[b+i-1] end; rn,V=@PR@(f(_u(A,1,n))) end; if fc==0 then return _u(V,1,rn) end; local T={{}}; for i=1,fc do T[i]=R[a+i-1] end; for i=1,rn do T[fc+i]=V[i] end; return _u(T,1,fc+rn)
- elseif op==OP_RETURN then if b==0 then return end; return _u(R,a,a+b-1)
+ elseif op==OP_SETTABLECALL then {settable_call_body}
+ elseif op==OP_RETURNCALL then {return_call_body}
+ elseif op==OP_RETURN then {return_body}
 {alias_return}
  elseif op==OP_RETURNVARARG then local T={{}}; local n=b; for i=1,b do T[i]=R[a+i-1] end; for i=P+1,N do n=n+1; T[n]=_sel(i,...) end; return _u(T,1,n)
- elseif op==OP_CALL then local s=(c>>8)&255; local n=c&255; if n==0 then R[a]=R[b]() elseif n==1 then R[a]=R[b](R[s]) elseif n==2 then R[a]=R[b](R[s],R[s+1]) elseif n==3 then R[a]=R[b](R[s],R[s+1],R[s+2]) elseif n==4 then R[a]=R[b](R[s],R[s+1],R[s+2],R[s+3]) else local A={{}}; for i=1,n do A[i]=R[s+i-1] end; R[a]=R[b](_u(A,1,n)) end
- elseif op==OP_CALLGLOBAL then local f=_env[@K@(C,a,R,U)]; local s=b; if c==0 then f() elseif c==1 then f(R[s]) elseif c==2 then f(R[s],R[s+1]) elseif c==3 then f(R[s],R[s+1],R[s+2]) elseif c==4 then f(R[s],R[s+1],R[s+2],R[s+3]) else local A={{}}; for i=1,c do A[i]=R[s+i-1] end; f(_u(A,1,c)) end
+ elseif op==OP_CALL then {call_body}
+ elseif op==OP_CALLGLOBAL then {callglobal_body}
 {alias_callglobal}
  elseif op==OP_TAILCALLGLOBAL then local f=_env[@K@(C,a,R,U)]; if c==0 then f() elseif c==1 then f(R[b]) elseif c==2 then f(R[b],R[b+1]) else local A={{}}; for i=1,c do A[i]=R[b+i-1] end; f(_u(A,1,c)) end; return
  elseif op==OP_TAILCALLGLOBALR then _env[@K@(C,a,R,U)](R[b]); return
@@ -231,8 +232,8 @@ while true do
  elseif op==OP_NEG then R[a]=-R[b]
  elseif op==OP_LEN then R[a]=#R[b]
  elseif op==OP_BITNOT then R[a]=~R[b]
- elseif op==OP_CALLN then local r=(c>>8)&255; local n=c&255; local s=a+r; if r==1 then if n==0 then R[a]=R[b]() elseif n==1 then R[a]=R[b](R[s]) elseif n==2 then R[a]=R[b](R[s],R[s+1]) elseif n==3 then R[a]=R[b](R[s],R[s+1],R[s+2]) else local A={{}}; for i=1,n do A[i]=R[s+i-1] end; R[a]=R[b](_u(A,1,n)) end elseif r==2 then if n==0 then R[a],R[a+1]=R[b]() elseif n==1 then R[a],R[a+1]=R[b](R[s]) elseif n==2 then R[a],R[a+1]=R[b](R[s],R[s+1]) elseif n==3 then R[a],R[a+1]=R[b](R[s],R[s+1],R[s+2]) else local A={{}}; for i=1,n do A[i]=R[s+i-1] end; R[a],R[a+1]=R[b](_u(A,1,n)) end elseif r==3 then if n==0 then R[a],R[a+1],R[a+2]=R[b]() elseif n==1 then R[a],R[a+1],R[a+2]=R[b](R[s]) elseif n==2 then R[a],R[a+1],R[a+2]=R[b](R[s],R[s+1]) elseif n==3 then R[a],R[a+1],R[a+2]=R[b](R[s],R[s+1],R[s+2]) else local A={{}}; for i=1,n do A[i]=R[s+i-1] end; R[a],R[a+1],R[a+2]=R[b](_u(A,1,n)) end else local V; if n==0 then V={{R[b]()}} elseif n==1 then V={{R[b](R[s])}} elseif n==2 then V={{R[b](R[s],R[s+1])}} elseif n==3 then V={{R[b](R[s],R[s+1],R[s+2])}} else local A={{}}; for i=1,n do A[i]=R[s+i-1] end; V={{R[b](_u(A,1,n))}} end; for i=1,r do R[a+i-1]=V[i] end end
- elseif op==OP_CALL3 then local s=(c>>8)&255; local n=c&255; if n==0 then R[a],R[a+1],R[a+2]=R[b]() elseif n==1 then R[a],R[a+1],R[a+2]=R[b](R[s]) elseif n==2 then R[a],R[a+1],R[a+2]=R[b](R[s],R[s+1]) elseif n==3 then R[a],R[a+1],R[a+2]=R[b](R[s],R[s+1],R[s+2]) else local A={{}}; for i=1,n do A[i]=R[s+i-1] end; R[a],R[a+1],R[a+2]=R[b](_u(A,1,n)) end
+ elseif op==OP_CALLN then {calln_body}
+ elseif op==OP_CALL3 then {call3_body}
  else error(0,0) end
 end
 end
@@ -260,6 +261,22 @@ return _entry_fn()"#,
         op_text = op_text,
         word_text = word_text,
         constant_text = constant_text,
+        super_return_body = handlers::return_body("ma", "mb"),
+        super_call_body = handlers::call_body("R[ma]", "R[mb]", "mc", false),
+        super_callglobal_body = handlers::call_global_body("ma", "mb", "mc", false),
+        move_body = handlers::move_body("a", "b"),
+        loadk_body = handlers::loadk_body("a", "b"),
+        getglobal_body = handlers::getglobal_body("a", "b"),
+        newtable_body = handlers::newtable_body("a"),
+        gettable_body = handlers::gettable_body("a", "b", "c"),
+        settable_body = handlers::settable_body("a", "b", "c"),
+        return_body = handlers::return_body("a", "b"),
+        settable_call_body = handlers::settable_call_body(),
+        return_call_body = handlers::return_call_body(),
+        call_body = handlers::call_body("R[a]", "R[b]", "c", true),
+        callglobal_body = handlers::call_global_body("a", "b", "c", true),
+        calln_body = handlers::calln_body(),
+        call3_body = handlers::call3_body(),
         alias_move = aliases.move_,
         alias_loadk = aliases.loadk,
         alias_halt = aliases.halt,

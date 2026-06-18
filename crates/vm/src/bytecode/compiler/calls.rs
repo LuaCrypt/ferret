@@ -8,10 +8,7 @@ use super::{captures::collect_captures, Binding, Compiler};
 impl Compiler {
     pub(super) fn call(&mut self, callee: &Expr, args: &[Expr]) -> Result<u16> {
         let dst = self.alloc();
-        let func = self.expr(callee)?;
-        let arg_start = self.next_reg;
-        self.reserve(args.len() as u16);
-        self.move_args(arg_start, args)?;
+        let (func, arg_start) = self.call_parts(callee, args)?;
         self.emit(Op::Call, dst, func, arg_start);
         self.emit_arg_count(args.len() as u16);
         Ok(dst)
@@ -28,18 +25,13 @@ impl Compiler {
             return Ok(false);
         }
         let key = self.constant(Const::String(name.clone()))?;
-        let arg_start = self.next_reg;
-        self.reserve(args.len() as u16);
-        self.move_args(arg_start, args)?;
+        let arg_start = self.args_after_current(args)?;
         self.emit(Op::CallGlobal, key, arg_start, args.len() as u16);
         Ok(true)
     }
 
     pub(super) fn call3_into(&mut self, callee: &Expr, args: &[Expr], dst: u16) -> Result<()> {
-        let func = self.expr(callee)?;
-        let arg_start = self.next_reg;
-        self.reserve(args.len() as u16);
-        self.move_args(arg_start, args)?;
+        let (func, arg_start) = self.call_parts(callee, args)?;
         self.emit(Op::Call3, dst, func, arg_start);
         self.emit_arg_count(args.len() as u16);
         Ok(())
@@ -60,8 +52,7 @@ impl Compiler {
             self.emit(Op::Move, slot, func, 0);
             func = slot;
         }
-        self.reserve_to(arg_start + args.len() as u16);
-        self.move_args(arg_start, args)?;
+        self.args_at(arg_start, args)?;
         self.emit(Op::CallN, dst, func, (count << 8) | args.len() as u16);
         Ok(())
     }
@@ -77,8 +68,7 @@ impl Compiler {
         self.reserve(1);
         self.emit(Op::Move, func_slot, func, 0);
         let arg_start = func_slot + 1;
-        self.reserve_to(arg_start + args.len() as u16);
-        self.move_args(arg_start, args)?;
+        self.args_at(arg_start, args)?;
         Ok(arg_start)
     }
 
@@ -119,6 +109,23 @@ impl Compiler {
         let key = self.constant(value)?;
         self.emit(Op::LoadK, dst, key, 0);
         Ok(dst)
+    }
+
+    fn call_parts(&mut self, callee: &Expr, args: &[Expr]) -> Result<(u16, u16)> {
+        let func = self.expr(callee)?;
+        let arg_start = self.args_after_current(args)?;
+        Ok((func, arg_start))
+    }
+
+    fn args_after_current(&mut self, args: &[Expr]) -> Result<u16> {
+        let arg_start = self.next_reg;
+        self.args_at(arg_start, args)
+    }
+
+    fn args_at(&mut self, arg_start: u16, args: &[Expr]) -> Result<u16> {
+        self.reserve_to(arg_start + args.len() as u16);
+        self.move_args(arg_start, args)?;
+        Ok(arg_start)
     }
 
     pub(super) fn move_args(&mut self, start: u16, args: &[Expr]) -> Result<()> {
