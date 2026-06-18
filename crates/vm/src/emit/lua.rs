@@ -27,12 +27,15 @@ pub struct EmitReport {
     pub static_decoys: usize,
     pub fake_opcode_count: usize,
     pub fake_bytecode_words: usize,
+    pub bytecode_integrity_tag: u32,
     pub runtime_template_variant: u8,
     pub bytecode_layout_variant: u8,
     pub constant_layout_variant: u8,
     pub semantic_alias_count: usize,
     pub handler_polymorphism_level: u8,
     pub output_hardening_level: u8,
+    pub runtime_integrity_checks: bool,
+    pub delayed_string_constants: bool,
     pub output_hardened: bool,
 }
 
@@ -74,6 +77,7 @@ pub fn emit_lua_with_options(chunk: &Chunk, seed: u64, options: EmitOptions) -> 
     let opcodes = OpcodePlan::new(layout, profile.seed(0x0c0d_e501), hardened);
     let aliases = runtime_aliases(&opcodes);
     let (enc_words, stream_seed) = encoded_words(chunk, &opcodes, seed, 0x70f0_1eaf);
+    let bytecode_integrity_tag = bytecode_tag(&enc_words);
     let runtime_variant = if hardened {
         profile.runtime_template_variant
     } else {
@@ -102,6 +106,7 @@ pub fn emit_lua_with_options(chunk: &Chunk, seed: u64, options: EmitOptions) -> 
         word_text: &word_text,
         constant_text: &constant_text,
         word_count: enc_words.len(),
+        bytecode_tag: bytecode_integrity_tag,
         reuse_root_registers: !has_function_constants(&chunk.constants),
         variant: runtime_variant,
         bytecode_layout: profile.bytecode_layout,
@@ -132,6 +137,7 @@ pub fn emit_lua_with_options(chunk: &Chunk, seed: u64, options: EmitOptions) -> 
         static_decoys,
         fake_opcode_count,
         fake_bytecode_words,
+        bytecode_integrity_tag,
         runtime_template_variant: runtime_variant.id(),
         bytecode_layout_variant: profile.bytecode_layout.id(),
         constant_layout_variant: profile.constant_layout.id(),
@@ -142,8 +148,23 @@ pub fn emit_lua_with_options(chunk: &Chunk, seed: u64, options: EmitOptions) -> 
             0
         },
         output_hardening_level: if hardened { profile.hardening_level } else { 0 },
+        runtime_integrity_checks: true,
+        delayed_string_constants: true,
         output_hardened: hardened,
     }
+}
+
+fn bytecode_tag(words: &[u32]) -> u32 {
+    let len = words.len() as u32;
+    let state = (2_166_136_261u32 ^ len) & 0x7fff_ffff;
+    if words.is_empty() {
+        return state;
+    }
+    let position = words.len() / 2;
+    (state ^ words[0] ^ words[position] ^ words[words.len() - 1])
+        .wrapping_mul(16_777_619)
+        .wrapping_add((position + 1) as u32)
+        & 0x7fff_ffff
 }
 
 fn op_locals(out: &mut String, opcodes: &OpcodePlan, numbers: &mut NumberEncoder) {
@@ -244,6 +265,7 @@ fn runtime_identifiers() -> &'static [&'static str] {
         "f",
         "l",
         "n",
+        "p",
         "v1",
         "v2",
         "v3",

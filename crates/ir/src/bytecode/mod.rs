@@ -94,6 +94,7 @@ pub enum Op {
     CallN,
     Call3,
     GenericFor,
+    GenericFor2Jmp,
     SuperBlock,
     Return,
     ReturnVarArg,

@@ -31,6 +31,9 @@ fn vm_matches_supported_fixtures() {
         assert!(result.metadata.semantic_alias_count > 0);
         assert!(result.metadata.handler_polymorphism_level > 0);
         assert!(result.metadata.output_hardening_level > 0);
+        assert!(result.metadata.runtime_integrity_checks);
+        assert!(result.metadata.delayed_string_constants);
+        assert_ne!(result.metadata.bytecode_integrity_tag, 0);
         assert!(!result.metadata.source_reconstruction);
         assert!(!result.code.contains("load("));
 
@@ -72,6 +75,9 @@ fn deterministic_with_fixed_seed() {
     assert!(first.metadata.fake_bytecode_words >= first.metadata.bytecode_word_count * 3);
     assert!(first.metadata.semantic_alias_count > 0);
     assert!(first.metadata.handler_polymorphism_level > 0);
+    assert!(first.metadata.runtime_integrity_checks);
+    assert!(first.metadata.delayed_string_constants);
+    assert_ne!(first.metadata.bytecode_integrity_tag, 0);
     assert_hardened_output_shape(&first.code, &["basic"]);
 
     let third = obfuscate(
@@ -95,6 +101,10 @@ fn deterministic_with_fixed_seed() {
         first.metadata.constant_layout_variant,
         third.metadata.constant_layout_variant
     );
+    assert_ne!(
+        first.metadata.bytecode_integrity_tag,
+        third.metadata.bytecode_integrity_tag
+    );
 }
 
 #[test]
@@ -114,6 +124,8 @@ fn strong_output_hides_runtime_shape_and_adds_static_decoys() {
     assert!(result.metadata.fake_opcode_count > 70);
     assert!(result.metadata.fake_bytecode_words >= result.metadata.bytecode_word_count * 3);
     assert!(result.metadata.semantic_alias_count > 0);
+    assert!(result.metadata.runtime_integrity_checks);
+    assert!(result.metadata.delayed_string_constants);
 
     if lua_available() {
         let temp = tempfile::NamedTempFile::new().unwrap();

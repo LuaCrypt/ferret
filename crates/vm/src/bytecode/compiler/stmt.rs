@@ -153,12 +153,20 @@ impl Compiler {
         let first_name = name_regs[0];
         let loop_start = self.instructions.len() as u16;
         self.breaks.push(Vec::new());
-        self.emit(Op::GenericFor, first_name, iter_start, names.len() as u16);
-        let exit = self.emit(Op::JmpFalse, first_name, 0, 0);
+        let exit = if names.len() == 2 {
+            self.emit(Op::GenericFor2Jmp, first_name, iter_start, 0)
+        } else {
+            self.emit(Op::GenericFor, first_name, iter_start, names.len() as u16);
+            self.emit(Op::JmpFalse, first_name, 0, 0)
+        };
         self.stmts(body)?;
         self.emit(Op::Jmp, loop_start, 0, 0);
         let end = self.instructions.len() as u16;
-        self.patch_b(exit, end);
+        if names.len() == 2 {
+            self.patch_c(exit, end);
+        } else {
+            self.patch_b(exit, end);
+        }
         self.patch_breaks(end);
         Ok(())
     }

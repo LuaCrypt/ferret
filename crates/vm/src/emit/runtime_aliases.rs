@@ -27,7 +27,7 @@ pub(super) fn runtime_aliases(opcodes: &OpcodePlan) -> RuntimeAliases {
         callglobal: branches(
             opcodes,
             Op::CallGlobal,
-            "local f=_env[KC[a+1]]; local s=b; if c==0 then f() elseif c==1 then f(R[s]) elseif c==2 then f(R[s],R[s+1]) elseif c==3 then f(R[s],R[s+1],R[s+2]) elseif c==4 then f(R[s],R[s+1],R[s+2],R[s+3]) else local A={}; for i=1,c do A[i]=R[s+i-1] end; f(_u(A,1,c)) end",
+            "local f=_env[@K@(C,a,R,U)]; local s=b; if c==0 then f() elseif c==1 then f(R[s]) elseif c==2 then f(R[s],R[s+1]) elseif c==3 then f(R[s],R[s+1],R[s+2]) elseif c==4 then f(R[s],R[s+1],R[s+2],R[s+3]) else local A={}; for i=1,c do A[i]=R[s+i-1] end; f(_u(A,1,c)) end",
         ),
         return_: branches(
             opcodes,

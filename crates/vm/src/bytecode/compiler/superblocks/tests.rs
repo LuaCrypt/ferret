@@ -49,6 +49,29 @@ fn superblock_remaps_jump_targets_after_inserted_headers() {
 }
 
 #[test]
+fn superblock_wraps_terminal_positive_for_step() {
+    let mut chunk = Chunk {
+        constants: Vec::new(),
+        instructions: vec![
+            Instr::new(Op::ForCheckPos, 4, 5, 0),
+            Instr::new(Op::AddModK, 2, 4, 0),
+            Instr::new(Op::MulKAddModK, 3, 2, 1),
+            Instr::new(Op::AddSelectLt, 1, 2, 3),
+            Instr::new(Op::ForStepPos, 4, 1, 0),
+            Instr::new(Op::Halt, 0, 0, 0),
+        ],
+        registers: 6,
+        params: 0,
+    };
+
+    apply(&mut chunk).unwrap();
+
+    assert_eq!(chunk.instructions[0], Instr::new(Op::ForCheckPos, 4, 6, 0));
+    assert_eq!(chunk.instructions[1], Instr::new(Op::SuperBlock, 4, 0, 0));
+    assert_eq!(chunk.instructions[5], Instr::new(Op::ForStepPos, 4, 1, 0));
+}
+
+#[test]
 fn superblock_refuses_spans_with_internal_branch_targets() {
     let mut chunk = Chunk {
         constants: Vec::new(),

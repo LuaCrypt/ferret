@@ -170,6 +170,7 @@ fn superblock_body_eligible(instr: &Instr) -> bool {
         | Op::CallN
         | Op::Call3
         | Op::GenericFor
+        | Op::GenericFor2Jmp
         | Op::TailCallGlobal
         | Op::TailCallGlobalR
         | Op::TailCallGlobalRR
@@ -183,7 +184,10 @@ fn superblock_body_eligible(instr: &Instr) -> bool {
 }
 
 fn superblock_terminal(instr: &Instr) -> bool {
-    matches!(instr.op, Op::Halt | Op::Return | Op::ReturnVarArg)
+    matches!(
+        instr.op,
+        Op::Halt | Op::Return | Op::ReturnVarArg | Op::ForStepPos
+    )
 }
 
 fn branch_targets(instructions: &[Instr]) -> BTreeSet<usize> {
@@ -200,7 +204,7 @@ fn branch_target(instr: &Instr) -> Option<usize> {
     match instr.op {
         Op::Jmp => Some(usize::from(instr.a)),
         Op::JmpFalse | Op::ForCheck | Op::ForCheckPos => Some(usize::from(instr.b)),
-        Op::JmpNotEq | Op::JmpNotLt | Op::JmpNotLe | Op::ForStepAddPos => {
+        Op::JmpNotEq | Op::JmpNotLt | Op::JmpNotLe | Op::ForStepAddPos | Op::GenericFor2Jmp => {
             Some(usize::from(instr.c))
         }
         Op::ForStep | Op::ForStepPos => Some(usize::from(instr.b)),
@@ -215,7 +219,7 @@ fn remap_branch_targets(instructions: &mut [Instr], old_to_new: &[usize]) -> Res
             Op::JmpFalse | Op::ForCheck | Op::ForCheckPos => {
                 instr.b = remap_target(instr.b, old_to_new)?;
             }
-            Op::JmpNotEq | Op::JmpNotLt | Op::JmpNotLe | Op::ForStepAddPos => {
+            Op::JmpNotEq | Op::JmpNotLt | Op::JmpNotLe | Op::ForStepAddPos | Op::GenericFor2Jmp => {
                 instr.c = remap_target(instr.c, old_to_new)?;
             }
             Op::ForStep | Op::ForStepPos => instr.b = remap_target(instr.b, old_to_new)?,

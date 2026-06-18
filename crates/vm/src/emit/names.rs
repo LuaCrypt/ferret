@@ -66,6 +66,7 @@ pub(super) fn op_name(op: ferret_ir::Op) -> &'static str {
         ferret_ir::Op::CallN => "OP_CALLN",
         ferret_ir::Op::Call3 => "OP_CALL3",
         ferret_ir::Op::GenericFor => "OP_GENERICFOR",
+        ferret_ir::Op::GenericFor2Jmp => "OP_GENERICFOR2JMP",
         ferret_ir::Op::SuperBlock => "OP_SUPERBLOCK",
         ferret_ir::Op::Return => "OP_RETURN",
         ferret_ir::Op::ReturnVarArg => "OP_RETURNVARARG",

@@ -11,6 +11,7 @@ pub(super) struct RuntimeInput<'a> {
     pub(super) word_text: &'a str,
     pub(super) constant_text: &'a str,
     pub(super) word_count: usize,
+    pub(super) bytecode_tag: u32,
     pub(super) reuse_root_registers: bool,
     pub(super) variant: RuntimeTemplateVariant,
     pub(super) bytecode_layout: BytecodeLayout,
@@ -26,12 +27,14 @@ pub(super) fn runtime(input: RuntimeInput<'_>) -> String {
         word_text,
         constant_text,
         word_count,
+        bytecode_tag,
         reuse_root_registers,
         variant,
         bytecode_layout,
         constant_layout,
         aliases,
     } = input;
+    let instr_count = word_count / 4;
     let mut code = format!(
         r#"local _env=_ENV
 local _fc=_env.@CACHE@; if _fc==nil then _fc={{}}; _env.@CACHE@=_fc end
@@ -62,8 +65,7 @@ local function @PK@(C)
   local r=C[{cr}][C[{cm}][ci]]; local t=r[1]; local v
   if KC[ci]==nil then
    if t==1 then KC[ci]=r[2]==1
-   elseif t==2 then v=@DB@(r[2],r[3]); KC[ci]=_num(v)
-   elseif t==3 then KC[ci]=@DB@(r[2],r[3]) end
+   elseif t==2 then v=@DB@(r[2],r[3]); KC[ci]=_num(v) end
   end
  end
 end
@@ -107,6 +109,7 @@ while true do
    elseif mop==OP_ADDMODK then R[ma]=(R[ma]+R[mb])%KC[mc+1]
    elseif mop==OP_MULKADDMODK then local mk=(mc>>8)&255; local dk=mc&255; R[ma]=(R[ma]*KC[mk+1]+R[mb])%KC[dk+1]
    elseif mop==OP_ADDSELECTLT then if R[mb]<R[mc] then R[ma]=R[ma]+R[mb] else R[ma]=R[ma]+R[mc] end
+   elseif mop==OP_FORSTEPPOS then R[ma]=R[ma]+R[ma+2]; if R[ma]<=R[ma+1] then pc=mb+1 end; break
    elseif mop==OP_ADD then R[ma]=R[mb]+R[mc]
    elseif mop==OP_ADDK then R[ma]=R[mb]+KC[mc+1]
    elseif mop==OP_SUB then R[ma]=R[mb]-R[mc]
@@ -134,7 +137,7 @@ while true do
    elseif mop==OP_GETUP then R[ma]=U[mb+1][1]
    elseif mop==OP_SETUP then U[ma+1][1]=R[mb]
    elseif mop==OP_CALL then local s=(mc>>8)&255; local n=mc&255; if n==0 then R[ma]=R[mb]() elseif n==1 then R[ma]=R[mb](R[s]) elseif n==2 then R[ma]=R[mb](R[s],R[s+1]) elseif n==3 then R[ma]=R[mb](R[s],R[s+1],R[s+2]) elseif n==4 then R[ma]=R[mb](R[s],R[s+1],R[s+2],R[s+3]) else error(0,0) end
-   elseif mop==OP_CALLGLOBAL then local f=_env[KC[ma+1]]; local s=mb; if mc==0 then f() elseif mc==1 then f(R[s]) elseif mc==2 then f(R[s],R[s+1]) elseif mc==3 then f(R[s],R[s+1],R[s+2]) elseif mc==4 then f(R[s],R[s+1],R[s+2],R[s+3]) else error(0,0) end
+   elseif mop==OP_CALLGLOBAL then local f=_env[@K@(C,ma,R,U)]; local s=mb; if mc==0 then f() elseif mc==1 then f(R[s]) elseif mc==2 then f(R[s],R[s+1]) elseif mc==3 then f(R[s],R[s+1],R[s+2]) elseif mc==4 then f(R[s],R[s+1],R[s+2],R[s+3]) else error(0,0) end
    elseif mop==OP_AND then R[ma]=R[mb] and R[mc]
    elseif mop==OP_OR then R[ma]=R[mb] or R[mc]
    elseif mop==OP_BITAND then R[ma]=R[mb]&R[mc]
@@ -194,6 +197,7 @@ while true do
 {alias_newtable} elseif op==OP_GETTABLE then R[a]=R[b][R[c]]
 {alias_gettable} elseif op==OP_SETTABLE then R[a][R[b]]=R[c]
 {alias_settable}
+ elseif op==OP_GENERICFOR2JMP then local v1,v2=R[b](R[b+1],R[b+2]); R[b+2]=v1; if not v1 then pc=c+1 else R[a]=v1; R[a+1]=v2 end
  elseif op==OP_GENERICFOR then if c==1 then local v1=R[b](R[b+1],R[b+2]); R[b+2]=v1; R[a]=v1 elseif c==2 then local v1,v2=R[b](R[b+1],R[b+2]); R[b+2]=v1; R[a]=v1; R[a+1]=v2 elseif c==3 then local v1,v2,v3=R[b](R[b+1],R[b+2]); R[b+2]=v1; R[a]=v1; R[a+1]=v2; R[a+2]=v3 else local V={{R[b](R[b+1],R[b+2])}}; R[b+2]=V[1]; for i=1,c do R[a+i-1]=V[i] end end
  elseif op==OP_CELL then R[a]={{R[b]}}
  elseif op==OP_GETCELL then R[a]=R[b][1]
@@ -204,14 +208,14 @@ while true do
 {alias_return}
  elseif op==OP_RETURNVARARG then local T={{}}; local n=b; for i=1,b do T[i]=R[a+i-1] end; for i=P+1,N do n=n+1; T[n]=_sel(i,...) end; return _u(T,1,n)
  elseif op==OP_CALL then local s=(c>>8)&255; local n=c&255; if n==0 then R[a]=R[b]() elseif n==1 then R[a]=R[b](R[s]) elseif n==2 then R[a]=R[b](R[s],R[s+1]) elseif n==3 then R[a]=R[b](R[s],R[s+1],R[s+2]) elseif n==4 then R[a]=R[b](R[s],R[s+1],R[s+2],R[s+3]) else local A={{}}; for i=1,n do A[i]=R[s+i-1] end; R[a]=R[b](_u(A,1,n)) end
- elseif op==OP_CALLGLOBAL then local f=_env[KC[a+1]]; local s=b; if c==0 then f() elseif c==1 then f(R[s]) elseif c==2 then f(R[s],R[s+1]) elseif c==3 then f(R[s],R[s+1],R[s+2]) elseif c==4 then f(R[s],R[s+1],R[s+2],R[s+3]) else local A={{}}; for i=1,c do A[i]=R[s+i-1] end; f(_u(A,1,c)) end
+ elseif op==OP_CALLGLOBAL then local f=_env[@K@(C,a,R,U)]; local s=b; if c==0 then f() elseif c==1 then f(R[s]) elseif c==2 then f(R[s],R[s+1]) elseif c==3 then f(R[s],R[s+1],R[s+2]) elseif c==4 then f(R[s],R[s+1],R[s+2],R[s+3]) else local A={{}}; for i=1,c do A[i]=R[s+i-1] end; f(_u(A,1,c)) end
 {alias_callglobal}
- elseif op==OP_TAILCALLGLOBAL then local f=_env[KC[a+1]]; if c==0 then f() elseif c==1 then f(R[b]) elseif c==2 then f(R[b],R[b+1]) else local A={{}}; for i=1,c do A[i]=R[b+i-1] end; f(_u(A,1,c)) end; return
- elseif op==OP_TAILCALLGLOBALR then _env[KC[a+1]](R[b]); return
- elseif op==OP_TAILCALLGLOBALRR then _env[KC[a+1]](R[b],R[c]); return
- elseif op==OP_TAILCALLGLOBALK then _env[KC[a+1]](KC[b+1]); return
- elseif op==OP_TAILCALLGLOBALKK then _env[KC[a+1]](KC[b+1],KC[c+1]); return
- elseif op==OP_TAILCALLGLOBALKR then _env[KC[a+1]](KC[b+1],R[c]); return
+ elseif op==OP_TAILCALLGLOBAL then local f=_env[@K@(C,a,R,U)]; if c==0 then f() elseif c==1 then f(R[b]) elseif c==2 then f(R[b],R[b+1]) else local A={{}}; for i=1,c do A[i]=R[b+i-1] end; f(_u(A,1,c)) end; return
+ elseif op==OP_TAILCALLGLOBALR then _env[@K@(C,a,R,U)](R[b]); return
+ elseif op==OP_TAILCALLGLOBALRR then _env[@K@(C,a,R,U)](R[b],R[c]); return
+ elseif op==OP_TAILCALLGLOBALK then _env[@K@(C,a,R,U)](@K@(C,b,R,U)); return
+ elseif op==OP_TAILCALLGLOBALKK then _env[@K@(C,a,R,U)](@K@(C,b,R,U),@K@(C,c,R,U)); return
+ elseif op==OP_TAILCALLGLOBALKR then _env[@K@(C,a,R,U)](@K@(C,b,R,U),R[c]); return
  elseif op==OP_AND then R[a]=R[b] and R[c]
  elseif op==OP_OR then R[a]=R[b] or R[c]
  elseif op==OP_BITAND then R[a]=R[b]&R[c]
@@ -230,12 +234,17 @@ while true do
 end
 end
 local @W@,@C@
-@W@={word_text}; @C@={constant_text}; @DWV@(@W@,{seed}); @W@=@PW@(@W@)
+@W@={word_text}; @C@={constant_text}
+local n=#@W@; local s=(2166136261 ~ n)&@M@; if n>0 then local p=(n>>1)+1; s=((s ~ @W@[1] ~ @W@[p] ~ @W@[n])*16777619+p)&@M@ end; if s~={bytecode_tag} then error(0,0) end
+@DWV@(@W@,{seed}); @W@=@PW@(@W@)
+if #@W@[{bo}]~={instr_count} or #@W@[{ba}]~={instr_count} or #@W@[{bb}]~={instr_count} or #@W@[{bc}]~={instr_count} then error(0,0) end; if @C@[{cr}]==nil or @C@[{cm}]==nil or @C@[{cc}]==nil then error(0,0) end
 @PK@(@C@)
 {entry_fn}
 _fc[{cache_key}]=_entry_fn
 return _entry_fn()"#,
         seed = seed as u32,
+        bytecode_tag = bytecode_tag,
+        instr_count = instr_count,
         cache_key = (seed as u32) ^ ((word_count as u32) << 1),
         bo = bytecode_layout.opcode,
         ba = bytecode_layout.a,

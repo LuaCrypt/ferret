@@ -71,6 +71,7 @@ pub fn opcode_layout(seed: u64) -> BTreeMap<Op, u32> {
         Op::CallN,
         Op::Call3,
         Op::GenericFor,
+        Op::GenericFor2Jmp,
         Op::SuperBlock,
         Op::Return,
         Op::ReturnVarArg,

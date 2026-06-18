@@ -30,12 +30,15 @@ fn cli_writes_deterministic_vm_output_and_metadata() {
     assert!(metadata.contains("\"output_hardened\": true"));
     assert!(metadata.contains("\"fake_opcode_count\":"));
     assert!(metadata.contains("\"fake_bytecode_words\":"));
+    assert!(metadata.contains("\"bytecode_integrity_tag\":"));
     assert!(metadata.contains("\"runtime_template_variant\":"));
     assert!(metadata.contains("\"bytecode_layout_variant\":"));
     assert!(metadata.contains("\"constant_layout_variant\":"));
     assert!(metadata.contains("\"semantic_alias_count\":"));
     assert!(metadata.contains("\"handler_polymorphism_level\":"));
     assert!(metadata.contains("\"output_hardening_level\":"));
+    assert!(metadata.contains("\"runtime_integrity_checks\": true"));
+    assert!(metadata.contains("\"delayed_string_constants\": true"));
 }
 
 #[test]
