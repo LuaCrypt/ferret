@@ -2,8 +2,10 @@ mod constants;
 mod lists;
 pub mod lua;
 mod names;
+mod opcodes;
 mod pack;
 mod runtime;
+mod runtime_aliases;
 mod runtime_shape;
 mod symbols;
 

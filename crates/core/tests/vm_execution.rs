@@ -28,6 +28,8 @@ fn vm_matches_supported_fixtures() {
         assert!(result.metadata.static_decoys > 0);
         assert!(result.metadata.fake_opcode_count > 0);
         assert!(result.metadata.fake_bytecode_words > result.metadata.bytecode_word_count);
+        assert!(result.metadata.semantic_alias_count > 0);
+        assert!(result.metadata.handler_polymorphism_level > 0);
         assert!(result.metadata.output_hardening_level > 0);
         assert!(!result.metadata.source_reconstruction);
         assert!(!result.code.contains("load("));
@@ -68,6 +70,8 @@ fn deterministic_with_fixed_seed() {
     assert!(first.metadata.static_decoys > 0);
     assert!(first.metadata.fake_opcode_count > 70);
     assert!(first.metadata.fake_bytecode_words >= first.metadata.bytecode_word_count * 3);
+    assert!(first.metadata.semantic_alias_count > 0);
+    assert!(first.metadata.handler_polymorphism_level > 0);
     assert_hardened_output_shape(&first.code, &["basic"]);
 
     let third = obfuscate(
@@ -82,6 +86,14 @@ fn deterministic_with_fixed_seed() {
     assert_ne!(
         first.metadata.runtime_template_variant,
         third.metadata.runtime_template_variant
+    );
+    assert_ne!(
+        first.metadata.bytecode_layout_variant,
+        third.metadata.bytecode_layout_variant
+    );
+    assert_ne!(
+        first.metadata.constant_layout_variant,
+        third.metadata.constant_layout_variant
     );
 }
 
@@ -101,6 +113,7 @@ fn strong_output_hides_runtime_shape_and_adds_static_decoys() {
     assert!(boundary + "\nend\ndo\n".len() < result.code.len());
     assert!(result.metadata.fake_opcode_count > 70);
     assert!(result.metadata.fake_bytecode_words >= result.metadata.bytecode_word_count * 3);
+    assert!(result.metadata.semantic_alias_count > 0);
 
     if lua_available() {
         let temp = tempfile::NamedTempFile::new().unwrap();
@@ -127,6 +140,8 @@ fn assert_hardened_output_shape(code: &str, source_literals: &[&str]) {
         "local cache",
         "if false then",
         "while true do",
+        "W[1],W[2],W[3],W[4]",
+        "C[1][C[2]",
     ] {
         assert!(!code.contains(needle), "{needle}");
     }

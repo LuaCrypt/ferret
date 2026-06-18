@@ -1,17 +1,17 @@
-use std::collections::BTreeMap;
-
 use ferret_crypto::{encode_bytes, Prng};
-use ferret_ir::{Capture, Chunk, Const, Op};
-use ferret_output::NumberEncoder;
+use ferret_ir::{Capture, Chunk, Const};
+use ferret_output::{ConstantLayout, NumberEncoder};
 
 use crate::emit::lists::{bytes, words};
+use crate::emit::opcodes::OpcodePlan;
 use crate::emit::pack::encoded_words;
 
 pub(super) fn constants(
     out: &mut String,
     constants: &[Const],
     seed: u64,
-    layout: &BTreeMap<Op, u32>,
+    opcodes: &OpcodePlan,
+    layout: ConstantLayout,
     numbers: &mut NumberEncoder,
 ) {
     let order = shuffled_order(constants.len(), seed);
@@ -19,29 +19,39 @@ pub(super) fn constants(
     for (slot, index) in order.iter().copied().enumerate() {
         map[index] = slot + 1;
     }
-    out.push_str("{{");
+    let mut rows = String::new();
+    rows.push('{');
     for index in order {
         constant(
-            out,
+            &mut rows,
             &constants[index],
             item_seed(seed, index),
+            opcodes,
             layout,
             numbers,
         );
     }
-    out.push_str("},{");
+    rows.push('}');
+    let mut map_text = String::new();
+    map_text.push('{');
     for slot in map {
-        out.push_str(&numbers.usize(slot));
-        out.push(',');
+        map_text.push_str(&numbers.usize(slot));
+        map_text.push(',');
     }
-    out.push_str("},{}}");
+    map_text.push('}');
+    out.push('{');
+    keyed(out, layout.rows, &rows, numbers);
+    keyed(out, layout.map, &map_text, numbers);
+    keyed(out, layout.cache, "{}", numbers);
+    out.push('}');
 }
 
 fn constant(
     out: &mut String,
     constant: &Const,
     seed: u64,
-    layout: &BTreeMap<Op, u32>,
+    opcodes: &OpcodePlan,
+    layout: ConstantLayout,
     numbers: &mut NumberEncoder,
 ) {
     match constant {
@@ -60,7 +70,7 @@ fn constant(
         Const::Number(value) => protected(out, 2, &number_text(*value), seed, numbers),
         Const::String(value) => protected(out, 3, value, seed, numbers),
         Const::Function { chunk, captures } => {
-            function_const(out, chunk, captures, seed, layout, numbers)
+            function_const(out, chunk, captures, seed, opcodes, layout, numbers)
         }
     }
 }
@@ -70,21 +80,30 @@ fn function_const(
     chunk: &Chunk,
     captures: &[Capture],
     seed: u64,
-    layout: &BTreeMap<Op, u32>,
+    opcodes: &OpcodePlan,
+    layout: ConstantLayout,
     numbers: &mut NumberEncoder,
 ) {
-    let (encoded, stream_seed) = encoded_words(chunk, layout, seed, 0xf17e_f00d);
+    let (encoded, stream_seed) = encoded_words(chunk, opcodes, seed, 0xf17e_f00d);
     out.push_str("{4,");
     out.push_str(&numbers.u32(stream_seed as u32));
     out.push(',');
     words(out, &encoded, numbers);
     out.push(',');
-    constants(out, &chunk.constants, stream_seed, layout, numbers);
+    constants(out, &chunk.constants, stream_seed, opcodes, layout, numbers);
     out.push(',');
     out.push_str(&numbers.u16(chunk.params));
     out.push(',');
     capture_list(out, captures, numbers);
     out.push_str("},");
+}
+
+fn keyed(out: &mut String, slot: usize, value: &str, numbers: &mut NumberEncoder) {
+    out.push('[');
+    out.push_str(&numbers.usize(slot));
+    out.push_str("]=");
+    out.push_str(value);
+    out.push(',');
 }
 
 fn capture_list(out: &mut String, captures: &[Capture], numbers: &mut NumberEncoder) {

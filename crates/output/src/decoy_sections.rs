@@ -1,6 +1,6 @@
 use ferret_crypto::Prng;
 
-use crate::{IdentGenerator, NumberEncoder, OutputPlan};
+use crate::{HardeningProfile, IdentGenerator, NumberEncoder};
 
 pub(super) fn payload_section(
     out: &mut String,
@@ -124,15 +124,15 @@ pub(super) fn runner_section(
     out.push_str(" end\nend\n");
 }
 
-pub(super) fn payload_words(plan: &OutputPlan, index: usize) -> usize {
-    let base = plan.fake_bytecode_words / plan.fake_payloads;
-    let extra = usize::from(index < plan.fake_bytecode_words % plan.fake_payloads);
+pub(super) fn payload_words(profile: &HardeningProfile, index: usize) -> usize {
+    let base = profile.fake_bytecode_words / profile.fake_payloads;
+    let extra = usize::from(index < profile.fake_bytecode_words % profile.fake_payloads);
     round_quad(base + extra)
 }
 
-pub(super) fn payload_constants(plan: &OutputPlan, index: usize) -> usize {
-    let base = plan.fake_constant_count / plan.fake_payloads;
-    let extra = usize::from(index < plan.fake_constant_count % plan.fake_payloads);
+pub(super) fn payload_constants(profile: &HardeningProfile, index: usize) -> usize {
+    let base = profile.fake_constant_count / profile.fake_payloads;
+    let extra = usize::from(index < profile.fake_constant_count % profile.fake_payloads);
     (base + extra).max(1)
 }
 
