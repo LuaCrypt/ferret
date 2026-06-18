@@ -175,6 +175,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferret-output"
+version = "0.1.0"
+dependencies = [
+ "ferret-crypto",
+]
+
+[[package]]
 name = "ferret-parse"
 version = "0.1.0"
 dependencies = [
@@ -195,6 +202,7 @@ version = "0.1.0"
 dependencies = [
  "ferret-crypto",
  "ferret-ir",
+ "ferret-output",
  "ferret-util",
  "serde",
 ]

@@ -1,4 +1,4 @@
-use ferret_crypto::Prng;
+use ferret_output::IdentGenerator;
 
 pub(super) struct Symbols {
     pub(super) words: String,
@@ -14,18 +14,18 @@ pub(super) struct Symbols {
 }
 
 pub(super) fn symbols(seed: u64) -> Symbols {
-    let mut rng = Prng::new(seed ^ 0x7379_6d73);
+    let mut idents = IdentGenerator::new(seed ^ 0x7379_6d73);
     Symbols {
-        words: ident(&mut rng, "w"),
-        constants: ident(&mut rng, "c"),
-        mask: ident(&mut rng, "m"),
-        decode_words: ident(&mut rng, "dw"),
-        pack_words: ident(&mut rng, "pw"),
-        decode_bytes: ident(&mut rng, "db"),
-        run: ident(&mut rng, "run"),
-        load_const: ident(&mut rng, "k"),
-        preload_consts: ident(&mut rng, "pk"),
-        cache: ident(&mut rng, "cache"),
+        words: idents.ident(),
+        constants: idents.ident(),
+        mask: idents.ident(),
+        decode_words: idents.ident(),
+        pack_words: idents.ident(),
+        decode_bytes: idents.ident(),
+        run: idents.ident(),
+        load_const: idents.ident(),
+        preload_consts: idents.ident(),
+        cache: idents.ident(),
     }
 }
 
@@ -50,8 +50,4 @@ impl Symbols {
             ("@CACHE@", &self.cache),
         ]
     }
-}
-
-fn ident(rng: &mut Prng, prefix: &str) -> String {
-    format!("_f_{prefix}_{:08x}", rng.next_u32())
 }

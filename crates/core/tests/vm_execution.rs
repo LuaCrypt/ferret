@@ -23,6 +23,12 @@ fn vm_matches_supported_fixtures() {
         assert!(result.metadata.encrypted_bytecode);
         assert!(result.metadata.encrypted_constants);
         assert!(result.metadata.custom_opcodes);
+        assert!(result.metadata.runtime_names_obfuscated);
+        assert!(result.metadata.output_hardened);
+        assert!(result.metadata.static_decoys > 0);
+        assert!(result.metadata.fake_opcode_count > 0);
+        assert!(result.metadata.fake_bytecode_words > result.metadata.bytecode_word_count);
+        assert!(result.metadata.output_hardening_level > 0);
         assert!(!result.metadata.source_reconstruction);
         assert!(!result.code.contains("load("));
 
@@ -57,11 +63,12 @@ fn deterministic_with_fixed_seed() {
     .unwrap();
     assert_eq!(first.code, second.code);
     assert_eq!(first.metadata.output_hash, second.metadata.output_hash);
-    assert!(!first.code.contains("local W="));
-    assert!(!first.code.contains("local C="));
-    assert!(!first.code.contains("function dwv"));
-    assert!(first.code.contains("C[1][C[2][k]]"));
-    assert!(first.code.contains("local cache=C[3]"));
+    assert!(first.metadata.output_hardened);
+    assert!(first.metadata.runtime_names_obfuscated);
+    assert!(first.metadata.static_decoys > 0);
+    assert!(first.metadata.fake_opcode_count > 70);
+    assert!(first.metadata.fake_bytecode_words >= first.metadata.bytecode_word_count * 3);
+    assert_hardened_output_shape(&first.code, &["basic"]);
 
     let third = obfuscate(
         &source,
@@ -72,12 +79,60 @@ fn deterministic_with_fixed_seed() {
     )
     .unwrap();
     assert_ne!(first.code, third.code);
+    assert_ne!(
+        first.metadata.runtime_template_variant,
+        third.metadata.runtime_template_variant
+    );
+}
+
+#[test]
+fn strong_output_hides_runtime_shape_and_adds_static_decoys() {
+    let source = "local total = 'hidden'\nprint(total)\n";
+    let result = obfuscate(
+        source,
+        ObfuscationOptions {
+            seed: 123,
+            ..ObfuscationOptions::default()
+        },
+    )
+    .unwrap();
+    assert_hardened_output_shape(&result.code, &["hidden", "total", "print"]);
+    let boundary = result.code.rfind("\nend\ndo\n").unwrap();
+    assert!(boundary + "\nend\ndo\n".len() < result.code.len());
+    assert!(result.metadata.fake_opcode_count > 70);
+    assert!(result.metadata.fake_bytecode_words >= result.metadata.bytecode_word_count * 3);
+
+    if lua_available() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        fs::write(temp.path(), result.code).unwrap();
+        let output = run_lua(temp.path());
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"hidden\n");
+    }
 }
 
 #[test]
 fn rejects_dynamic_loader() {
     let err = obfuscate("load('print(1)')()", ObfuscationOptions::default()).unwrap_err();
     assert!(err.to_string().contains("load"));
+}
+
+fn assert_hardened_output_shape(code: &str, source_literals: &[&str]) {
+    for needle in [
+        "OP_",
+        "LOADK",
+        "CALLGLOBAL",
+        "_f_",
+        "ferret vm",
+        "local cache",
+        "if false then",
+        "while true do",
+    ] {
+        assert!(!code.contains(needle), "{needle}");
+    }
+    for literal in source_literals {
+        assert!(!code.contains(literal), "{literal}");
+    }
 }
 
 fn fixture_path(name: &str) -> std::path::PathBuf {

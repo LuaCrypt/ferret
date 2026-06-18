@@ -53,6 +53,13 @@ pub struct Metadata {
     pub encrypted_bytecode: bool,
     pub encrypted_constants: bool,
     pub custom_opcodes: bool,
+    pub runtime_names_obfuscated: bool,
+    pub static_decoys: usize,
+    pub fake_opcode_count: usize,
+    pub fake_bytecode_words: usize,
+    pub runtime_template_variant: u8,
+    pub output_hardening_level: u8,
+    pub output_hardened: bool,
     pub limitations: Vec<String>,
 }
 
@@ -66,7 +73,15 @@ pub fn obfuscate(source: &str, options: ObfuscationOptions) -> Result<Obfuscatio
     reject_hostile(source)?;
     let program = ferret_parse::parse(source)?;
     let compiled = ferret_vm::compile(&program)?;
-    let emitted = ferret_vm::emit_lua(&compiled.chunk, options.seed);
+    let profile = match options.preset {
+        Preset::Balanced => ferret_vm::OutputProfile::Lean,
+        Preset::Strong => ferret_vm::OutputProfile::Hardened,
+    };
+    let emitted = ferret_vm::emit_lua_with_options(
+        &compiled.chunk,
+        options.seed,
+        ferret_vm::EmitOptions { profile },
+    );
     let metadata = Metadata {
         lua_version: "lua54".to_string(),
         preset: options.preset,
@@ -81,6 +96,13 @@ pub fn obfuscate(source: &str, options: ObfuscationOptions) -> Result<Obfuscatio
         encrypted_bytecode: true,
         encrypted_constants: true,
         custom_opcodes: true,
+        runtime_names_obfuscated: emitted.runtime_names_obfuscated,
+        static_decoys: emitted.static_decoys,
+        fake_opcode_count: emitted.fake_opcode_count,
+        fake_bytecode_words: emitted.fake_bytecode_words,
+        runtime_template_variant: emitted.runtime_template_variant,
+        output_hardening_level: emitted.output_hardening_level,
+        output_hardened: emitted.output_hardened,
         limitations: vec![
             "open-source runtime can be instrumented".to_string(),
             "unsupported Lua constructs fail instead of falling back".to_string(),

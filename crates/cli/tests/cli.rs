@@ -26,6 +26,12 @@ fn cli_writes_deterministic_vm_output_and_metadata() {
     let metadata = fs::read_to_string(meta).unwrap();
     assert!(!code.contains("load("));
     assert!(metadata.contains("\"vm_only\": true"));
+    assert!(metadata.contains("\"runtime_names_obfuscated\": true"));
+    assert!(metadata.contains("\"output_hardened\": true"));
+    assert!(metadata.contains("\"fake_opcode_count\":"));
+    assert!(metadata.contains("\"fake_bytecode_words\":"));
+    assert!(metadata.contains("\"runtime_template_variant\":"));
+    assert!(metadata.contains("\"output_hardening_level\":"));
 }
 
 #[test]
