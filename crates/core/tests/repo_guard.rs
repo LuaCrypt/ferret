@@ -27,7 +27,7 @@ fn collect(path: &Path, files: &mut Vec<PathBuf>) {
         if name == ".git" || name == "target" {
             continue;
         }
-        if path.ends_with("tests/vendor") {
+        if path.ends_with("tests/vendor") || path.ends_with("tests/output") {
             continue;
         }
         if path.is_dir() {

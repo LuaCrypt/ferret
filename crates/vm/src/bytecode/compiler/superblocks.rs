@@ -169,6 +169,8 @@ fn superblock_body_eligible(instr: &Instr) -> bool {
         | Op::ForStepAddPos
         | Op::CallN
         | Op::Call3
+        | Op::ReturnCall
+        | Op::SetTableCall
         | Op::GenericFor
         | Op::GenericFor2Jmp
         | Op::TailCallGlobal

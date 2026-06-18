@@ -99,8 +99,12 @@ fn expr(
 ) {
     match value {
         Expr::Var(name) => {
-            if !bound.contains(name) && available.contains(name) {
-                captures.insert(name.clone());
+            if !bound.contains(name) {
+                if available.contains(name) {
+                    captures.insert(name.clone());
+                } else if name != "_ENV" && available.contains("_ENV") && !bound.contains("_ENV") {
+                    captures.insert("_ENV".to_string());
+                }
             }
         }
         Expr::Table(fields) => {

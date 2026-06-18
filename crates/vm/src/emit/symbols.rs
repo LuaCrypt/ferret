@@ -7,6 +7,7 @@ pub(super) struct Symbols {
     pub(super) decode_words: String,
     pub(super) pack_words: String,
     pub(super) decode_bytes: String,
+    pub(super) pack_results: String,
     pub(super) run: String,
     pub(super) load_const: String,
     pub(super) preload_consts: String,
@@ -22,6 +23,7 @@ pub(super) fn symbols(seed: u64) -> Symbols {
         decode_words: idents.ident(),
         pack_words: idents.ident(),
         decode_bytes: idents.ident(),
+        pack_results: idents.ident(),
         run: idents.ident(),
         load_const: idents.ident(),
         preload_consts: idents.ident(),
@@ -36,7 +38,7 @@ impl Symbols {
         }
     }
 
-    fn replacements(&self) -> [(&'static str, &str); 10] {
+    fn replacements(&self) -> [(&'static str, &str); 11] {
         [
             ("@W@", &self.words),
             ("@C@", &self.constants),
@@ -44,6 +46,7 @@ impl Symbols {
             ("@DWV@", &self.decode_words),
             ("@PW@", &self.pack_words),
             ("@DB@", &self.decode_bytes),
+            ("@PR@", &self.pack_results),
             ("@RUN@", &self.run),
             ("@K@", &self.load_const),
             ("@PK@", &self.preload_consts),

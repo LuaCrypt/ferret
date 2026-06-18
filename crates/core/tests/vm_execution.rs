@@ -31,6 +31,12 @@ fn vm_matches_supported_fixtures() {
         assert!(result.metadata.semantic_alias_count > 0);
         assert!(result.metadata.handler_polymorphism_level > 0);
         assert!(result.metadata.output_hardening_level > 0);
+        assert!(result.metadata.dump_resistance_level > 0);
+        assert_eq!(result.metadata.adversarial_suite_version, 1);
+        assert_eq!(result.metadata.semantic_mismatch_exclusions, 0);
+        assert!(result.metadata.env_semantics);
+        assert!(result.metadata.open_tail_multireturn);
+        assert!(result.metadata.table_tail_multireturn);
         assert!(result.metadata.runtime_integrity_checks);
         assert!(result.metadata.delayed_string_constants);
         assert_ne!(result.metadata.bytecode_integrity_tag, 0);
@@ -75,6 +81,12 @@ fn deterministic_with_fixed_seed() {
     assert!(first.metadata.fake_bytecode_words >= first.metadata.bytecode_word_count * 3);
     assert!(first.metadata.semantic_alias_count > 0);
     assert!(first.metadata.handler_polymorphism_level > 0);
+    assert!(first.metadata.dump_resistance_level > 0);
+    assert_eq!(first.metadata.adversarial_suite_version, 1);
+    assert_eq!(first.metadata.semantic_mismatch_exclusions, 0);
+    assert!(first.metadata.env_semantics);
+    assert!(first.metadata.open_tail_multireturn);
+    assert!(first.metadata.table_tail_multireturn);
     assert!(first.metadata.runtime_integrity_checks);
     assert!(first.metadata.delayed_string_constants);
     assert_ne!(first.metadata.bytecode_integrity_tag, 0);
@@ -124,6 +136,8 @@ fn strong_output_hides_runtime_shape_and_adds_static_decoys() {
     assert!(result.metadata.fake_opcode_count > 70);
     assert!(result.metadata.fake_bytecode_words >= result.metadata.bytecode_word_count * 3);
     assert!(result.metadata.semantic_alias_count > 0);
+    assert!(result.metadata.dump_resistance_level > 0);
+    assert_eq!(result.metadata.adversarial_suite_version, 1);
     assert!(result.metadata.runtime_integrity_checks);
     assert!(result.metadata.delayed_string_constants);
 
@@ -134,6 +148,35 @@ fn strong_output_hides_runtime_shape_and_adds_static_decoys() {
         assert!(output.status.success());
         assert_eq!(output.stdout, b"hidden\n");
     }
+}
+
+#[test]
+fn lexical_env_scope_restores_after_block() {
+    if !lua_available() {
+        return;
+    }
+    let source = r#"
+local outer_print = print
+do
+    local _ENV = { print = outer_print, value = 91 }
+    print("env_scope", value)
+end
+print("env_scope_after", type(value))
+"#;
+    let result = obfuscate(
+        source,
+        ObfuscationOptions {
+            seed: 321,
+            ..ObfuscationOptions::default()
+        },
+    )
+    .unwrap();
+    let temp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(temp.path(), result.code).unwrap();
+    let original = run_lua_source(source);
+    let obfuscated = run_lua(temp.path());
+    assert_eq!(original.status.code(), obfuscated.status.code());
+    assert_eq!(original.stdout, obfuscated.stdout);
 }
 
 #[test]
@@ -185,6 +228,14 @@ fn supported_paths() -> Vec<std::path::PathBuf> {
         script_path("control_flow/002_control_flow.lua"),
         script_path("control_flow/004_control_flow.lua"),
         script_path("closures_upvalues/001_closures_upvalues.lua"),
+        script_path("env_globals/001_env_globals.lua"),
+        script_path("env_globals/002_env_globals.lua"),
+        script_path("env_globals/003_env_globals.lua"),
+        script_path("env_globals/004_env_globals.lua"),
+        script_path("env_globals/005_env_globals.lua"),
+        script_path("env_globals/006_env_globals.lua"),
+        script_path("env_globals/007_env_globals.lua"),
+        script_path("env_globals/008_env_globals.lua"),
         script_path("functions/002_functions.lua"),
         script_path("functions/003_functions.lua"),
         script_path("generic_for/001_generic_for.lua"),
@@ -194,7 +245,11 @@ fn supported_paths() -> Vec<std::path::PathBuf> {
         script_path("varargs_multireturn/001_varargs_multireturn.lua"),
         script_path("varargs_multireturn/009_varargs_multireturn.lua"),
         lua54_path("001_multireturn_assignment.lua"),
+        lua54_path("002_return_open_tail.lua"),
+        lua54_path("003_table_final_multireturn.lua"),
+        lua54_path("004_lexical_env_nested.lua"),
         lua54_path("005_goto_forward_backward.lua"),
+        lua54_path("009_pcall_multireturn.lua"),
         lua54_path("010_vararg_return_tail.lua"),
     ]
 }
@@ -212,4 +267,10 @@ fn lua_available() -> bool {
 
 fn run_lua(path: &Path) -> std::process::Output {
     Command::new("lua").arg(path).output().unwrap()
+}
+
+fn run_lua_source(source: &str) -> std::process::Output {
+    let temp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(temp.path(), source).unwrap();
+    run_lua(temp.path())
 }

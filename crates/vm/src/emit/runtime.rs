@@ -57,6 +57,7 @@ local function @DB@(seed,b)
  for i=1,#b do s=(s*73+41+i*17)&255; o[i]=_ch(b[i]~s) end
  return _tc(o)
 end
+local function @PR@(...) return _sel('#',...),{{...}} end
 local function @PK@(C)
  if C[{cs}]==1 then return end
  C[{cs}]=1
@@ -204,6 +205,8 @@ while true do
  elseif op==OP_SETCELL then R[a][1]=R[b]
  elseif op==OP_GETUP then R[a]=U[b+1][1]
  elseif op==OP_SETUP then U[a+1][1]=R[b]
+ elseif op==OP_SETTABLECALL then local n=c&255; local ix=(c>>8)&255; local f=R[b-1]; local rn,V; if n==0 then rn,V=@PR@(f()) elseif n==1 then rn,V=@PR@(f(R[b])) elseif n==2 then rn,V=@PR@(f(R[b],R[b+1])) elseif n==3 then rn,V=@PR@(f(R[b],R[b+1],R[b+2])) elseif n==4 then rn,V=@PR@(f(R[b],R[b+1],R[b+2],R[b+3])) else local A={{}}; for i=1,n do A[i]=R[b+i-1] end; rn,V=@PR@(f(_u(A,1,n))) end; for i=1,rn do R[a][ix+i-1]=V[i] end
+ elseif op==OP_RETURNCALL then local n=c&255; local fc=(c>>8)&255; local f=R[b-1]; local rn,V; if n==0 then rn,V=@PR@(f()) elseif n==1 then rn,V=@PR@(f(R[b])) elseif n==2 then rn,V=@PR@(f(R[b],R[b+1])) elseif n==3 then rn,V=@PR@(f(R[b],R[b+1],R[b+2])) elseif n==4 then rn,V=@PR@(f(R[b],R[b+1],R[b+2],R[b+3])) else local A={{}}; for i=1,n do A[i]=R[b+i-1] end; rn,V=@PR@(f(_u(A,1,n))) end; if fc==0 then return _u(V,1,rn) end; local T={{}}; for i=1,fc do T[i]=R[a+i-1] end; for i=1,rn do T[fc+i]=V[i] end; return _u(T,1,fc+rn)
  elseif op==OP_RETURN then if b==0 then return end; return _u(R,a,a+b-1)
 {alias_return}
  elseif op==OP_RETURNVARARG then local T={{}}; local n=b; for i=1,b do T[i]=R[a+i-1] end; for i=P+1,N do n=n+1; T[n]=_sel(i,...) end; return _u(T,1,n)

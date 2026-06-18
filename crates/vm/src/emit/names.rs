@@ -65,6 +65,8 @@ pub(super) fn op_name(op: ferret_ir::Op) -> &'static str {
         ferret_ir::Op::TailCallGlobalKR => "OP_TAILCALLGLOBALKR",
         ferret_ir::Op::CallN => "OP_CALLN",
         ferret_ir::Op::Call3 => "OP_CALL3",
+        ferret_ir::Op::ReturnCall => "OP_RETURNCALL",
+        ferret_ir::Op::SetTableCall => "OP_SETTABLECALL",
         ferret_ir::Op::GenericFor => "OP_GENERICFOR",
         ferret_ir::Op::GenericFor2Jmp => "OP_GENERICFOR2JMP",
         ferret_ir::Op::SuperBlock => "OP_SUPERBLOCK",

@@ -65,7 +65,7 @@ impl HardeningProfile {
             fake_constant_count: fake_constants,
             runtime_template_variant: RuntimeTemplateVariant::from_seed(seed),
             handler_polymorphism_level: 2 + ((spread as u8) & 1),
-            hardening_level: 2,
+            hardening_level: 3,
         }
     }
 

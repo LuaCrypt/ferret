@@ -37,6 +37,12 @@ fn cli_writes_deterministic_vm_output_and_metadata() {
     assert!(metadata.contains("\"semantic_alias_count\":"));
     assert!(metadata.contains("\"handler_polymorphism_level\":"));
     assert!(metadata.contains("\"output_hardening_level\":"));
+    assert!(metadata.contains("\"dump_resistance_level\":"));
+    assert!(metadata.contains("\"adversarial_suite_version\": 1"));
+    assert!(metadata.contains("\"semantic_mismatch_exclusions\": 0"));
+    assert!(metadata.contains("\"env_semantics\": true"));
+    assert!(metadata.contains("\"open_tail_multireturn\": true"));
+    assert!(metadata.contains("\"table_tail_multireturn\": true"));
     assert!(metadata.contains("\"runtime_integrity_checks\": true"));
     assert!(metadata.contains("\"delayed_string_constants\": true"));
 }

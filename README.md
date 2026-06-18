@@ -4,10 +4,12 @@ Ferret is a free, open source Lua 5.4 VM obfuscator. It compiles supported Lua
 source into a custom register bytecode format, encrypts bytecode and constants,
 and emits a standalone Lua VM runtime.
 
-Ferret is designed to be stronger than source packers and web obfuscation
-services while staying honest about its limits. It does not claim runtime dump
-resistance, anti-debug invisibility, or cryptographic secrecy against an attacker
-who can instrument the generated VM.
+Ferret 1 is designed to be stronger than source packers and web obfuscation
+services while staying honest about its limits. The strong preset adds seeded
+static VM hardening, fake opcode/data layers, bytecode and constant encryption,
+and bounded runtime dump resistance against generic static tooling. It is not
+DRM, anti-debug protection, host fingerprinting, or cryptographic secrecy
+against an attacker who can freely instrument the generated VM.
 
 ## Project
 
@@ -48,7 +50,7 @@ To include native Lua vs generated VM runtime overhead:
 cargo run --release -p ferret-cli -- bench --runtime-overhead --runtime-runs 3 tests/bench/runtime_overhead.lua
 ```
 
-For repeated corpus timing with known semantic mismatches excluded from perf:
+For repeated corpus timing:
 
 ```sh
 cargo run --release -p ferret-cli -- bench --runtime-overhead --runtime-runs 3 --runtime-inner-runs 200 --runtime-known-mismatches tests/bench/runtime_mismatch_exclusions.txt tests/fixtures tests/scripts tests/lua54_conformance

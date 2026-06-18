@@ -21,6 +21,12 @@ impl Compiler {
         let Expr::Var(name) = callee else {
             return Ok(false);
         };
+        if self.locals.contains_key(name)
+            || self.upvalues.contains_key(name)
+            || self.env_binding().is_some()
+        {
+            return Ok(false);
+        }
         let key = self.constant(Const::String(name.clone()))?;
         let arg_start = self.next_reg;
         self.reserve(args.len() as u16);
@@ -46,12 +52,43 @@ impl Compiler {
         dst: u16,
         count: u16,
     ) -> Result<()> {
-        let func = self.expr(callee)?;
         let arg_start = dst + count;
+        let mut func = self.expr(callee)?;
+        if func >= arg_start && func < arg_start + args.len() as u16 {
+            let slot = self.next_reg;
+            self.reserve(1);
+            self.emit(Op::Move, slot, func, 0);
+            func = slot;
+        }
         self.reserve_to(arg_start + args.len() as u16);
         self.move_args(arg_start, args)?;
         self.emit(Op::CallN, dst, func, (count << 8) | args.len() as u16);
         Ok(())
+    }
+
+    pub(super) fn open_call_args(&mut self, callee: &Expr, args: &[Expr]) -> Result<u16> {
+        if args.len() > u8::MAX as usize {
+            return Err(FerretError::Unsupported(
+                "calls with more than 255 arguments are not in the VM subset yet".to_string(),
+            ));
+        }
+        let func = self.expr(callee)?;
+        let func_slot = self.next_reg;
+        self.reserve(1);
+        self.emit(Op::Move, func_slot, func, 0);
+        let arg_start = func_slot + 1;
+        self.reserve_to(arg_start + args.len() as u16);
+        self.move_args(arg_start, args)?;
+        Ok(arg_start)
+    }
+
+    pub(super) fn packed_open_counts(fixed_count: usize, arg_count: usize) -> Result<u16> {
+        if fixed_count > u8::MAX as usize || arg_count > u8::MAX as usize {
+            return Err(FerretError::Unsupported(
+                "open multireturn call shape is too large for the VM subset".to_string(),
+            ));
+        }
+        Ok(((fixed_count as u16) << 8) | arg_count as u16)
     }
 
     pub(super) fn function(&mut self, params: &[String], body: &[Stmt]) -> Result<u16> {
@@ -84,7 +121,7 @@ impl Compiler {
         Ok(dst)
     }
 
-    fn move_args(&mut self, start: u16, args: &[Expr]) -> Result<()> {
+    pub(super) fn move_args(&mut self, start: u16, args: &[Expr]) -> Result<()> {
         for (index, arg) in args.iter().enumerate() {
             self.expr_into(start + index as u16, arg)?;
         }

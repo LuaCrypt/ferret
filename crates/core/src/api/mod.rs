@@ -64,6 +64,12 @@ pub struct Metadata {
     pub semantic_alias_count: usize,
     pub handler_polymorphism_level: u8,
     pub output_hardening_level: u8,
+    pub dump_resistance_level: u8,
+    pub adversarial_suite_version: u8,
+    pub semantic_mismatch_exclusions: usize,
+    pub env_semantics: bool,
+    pub open_tail_multireturn: bool,
+    pub table_tail_multireturn: bool,
     pub runtime_integrity_checks: bool,
     pub delayed_string_constants: bool,
     pub output_hardened: bool,
@@ -114,14 +120,20 @@ pub fn obfuscate(source: &str, options: ObfuscationOptions) -> Result<Obfuscatio
         semantic_alias_count: emitted.semantic_alias_count,
         handler_polymorphism_level: emitted.handler_polymorphism_level,
         output_hardening_level: emitted.output_hardening_level,
+        dump_resistance_level: emitted.dump_resistance_level,
+        adversarial_suite_version: emitted.adversarial_suite_version,
+        semantic_mismatch_exclusions: emitted.semantic_mismatch_exclusions,
+        env_semantics: emitted.env_semantics,
+        open_tail_multireturn: emitted.open_tail_multireturn,
+        table_tail_multireturn: emitted.table_tail_multireturn,
         runtime_integrity_checks: emitted.runtime_integrity_checks,
         delayed_string_constants: emitted.delayed_string_constants,
         output_hardened: emitted.output_hardened,
         limitations: vec![
-            "open-source runtime can be instrumented".to_string(),
-            "unsupported Lua constructs fail instead of falling back".to_string(),
-            "closures, goto, repeat-until, and to-be-closed variables are not supported yet"
+            "bounded runtime dump resistance; open-source runtime can still be instrumented"
                 .to_string(),
+            "unsupported Lua constructs fail instead of falling back".to_string(),
+            "to-be-closed variables and yielding coroutines are not supported yet".to_string(),
         ],
     };
     Ok(ObfuscationResult {

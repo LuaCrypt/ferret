@@ -2,8 +2,10 @@ mod calls;
 mod captures;
 mod expr;
 mod patterns;
+mod scope;
 mod stmt;
 mod superblocks;
+mod table;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -66,6 +68,12 @@ pub(super) enum Binding {
     Cell(u16),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum EnvBinding {
+    Local(Binding),
+    Upvalue(u16),
+}
+
 impl Compiler {
     pub(super) fn with_params(params: &[String], upvalues: BTreeMap<String, u16>) -> Self {
         let mut compiler = Self {
@@ -97,37 +105,48 @@ impl Compiler {
     fn stmt(&mut self, stmt: &Stmt) -> Result<()> {
         match stmt {
             Stmt::Local { names, values } => {
-                self.define_locals(names);
+                if names.len() == 1
+                    && matches!(values.first(), Some(ferret_ir::Expr::Function { .. }))
+                {
+                    self.define_locals(names);
+                    if let Some(value) = values.first() {
+                        let src = self.expr(value)?;
+                        let binding = self.locals[&names[0]];
+                        self.write_binding(binding, src);
+                    }
+                    return Ok(());
+                }
+
+                let start = self.reserve(names.len() as u16);
+                let regs = (0..names.len())
+                    .map(|offset| start + offset as u16)
+                    .collect::<Vec<_>>();
                 let expands_tail_call = matches!(values.last(), Some(ferret_ir::Expr::Call { .. }))
                     && names.len() > values.len();
                 if expands_tail_call {
-                    let values = self.value_regs(values, names.len())?;
-                    for (index, name) in names.iter().enumerate() {
-                        let src = match values.get(index).copied() {
-                            Some(src) => src,
-                            None => self.nil()?,
-                        };
-                        let binding = self.locals[name];
-                        self.write_binding(binding, src);
+                    if let Some(ferret_ir::Expr::Call { callee, args }) = values.last() {
+                        let fixed_count = values.len() - 1;
+                        for (index, value) in values[..fixed_count].iter().enumerate() {
+                            self.expr_into(regs[index], value)?;
+                        }
+                        self.call_n_into(
+                            callee,
+                            args,
+                            regs[fixed_count],
+                            (names.len() - fixed_count) as u16,
+                        )?;
                     }
                 } else {
-                    for (index, name) in names.iter().enumerate() {
+                    for (index, dst) in regs.iter().copied().enumerate() {
                         if let Some(value) = values.get(index) {
-                            if matches!(value, ferret_ir::Expr::Function { .. }) {
-                                let src = self.expr(value)?;
-                                let binding = self.locals[name];
-                                self.write_binding(binding, src);
-                            } else {
-                                let binding = self.locals[name];
-                                self.write_expr(binding, value)?;
-                            }
+                            self.expr_into(dst, value)?;
                         } else {
-                            let binding = self.locals[name];
                             let nil = self.nil()?;
-                            self.write_binding(binding, nil);
+                            self.emit(Op::Move, dst, nil, 0);
                         }
                     }
                 }
+                self.bind_local_regs(names, &regs);
             }
             Stmt::Assign { targets, values } => {
                 if self.special_assign(targets, values)? {
@@ -142,9 +161,7 @@ impl Compiler {
                     self.assign_target(target, src)?;
                 }
             }
-            Stmt::Block(body) => {
-                self.stmts(body)?;
-            }
+            Stmt::Block(body) => self.scoped_stmts(body)?,
             Stmt::Break => self.break_stmt()?,
             Stmt::Label(name) => self.label_stmt(name),
             Stmt::Goto(name) => self.goto_stmt(name)?,

@@ -1,7 +1,7 @@
 use ferret_ir::{BinOp, Const, Expr, Op, UnOp};
 use ferret_util::{FerretError, Result};
 
-use super::{Binding, Compiler};
+use super::{Binding, Compiler, EnvBinding};
 use crate::bytecode::support::bin_op;
 
 impl Compiler {
@@ -45,6 +45,12 @@ impl Compiler {
             .collect()
     }
 
+    pub(super) fn bind_local_regs(&mut self, names: &[String], regs: &[u16]) {
+        for (name, reg) in names.iter().zip(regs.iter().copied()) {
+            self.locals.insert(name.clone(), Binding::Local(reg));
+        }
+    }
+
     pub(super) fn value_regs(&mut self, values: &[Expr], target_count: usize) -> Result<Vec<u16>> {
         if let Some(Expr::Call { callee, args }) = values.last() {
             let fixed_count = values.len() - 1;
@@ -72,17 +78,6 @@ impl Compiler {
                 return Err(FerretError::Unsupported(
                     "assignment target is not in the VM subset yet".to_string(),
                 ));
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn write_expr(&mut self, binding: Binding, value: &Expr) -> Result<()> {
-        match binding {
-            Binding::Local(dst) => self.expr_into(dst, value)?,
-            Binding::Cell(dst) => {
-                let src = self.expr(value)?;
-                self.emit(Op::SetCell, dst, src, 0);
             }
         }
         Ok(())
@@ -138,6 +133,12 @@ impl Compiler {
             let dst = self.alloc();
             self.emit(Op::GetUp, dst, upvalue, 0);
             Ok(dst)
+        } else if let Some(env) = self.env_binding() {
+            let dst = self.alloc();
+            let table = self.read_env_binding(env)?;
+            let key = self.load_const(Const::String(name.to_string()))?;
+            self.emit(Op::GetTable, dst, table, key);
+            Ok(dst)
         } else {
             let dst = self.alloc();
             let key = self.constant(Const::String(name.to_string()))?;
@@ -151,30 +152,15 @@ impl Compiler {
             self.write_binding(binding, src);
         } else if let Some(upvalue) = self.upvalues.get(name).copied() {
             self.emit(Op::SetUp, upvalue, src, 0);
+        } else if let Some(env) = self.env_binding() {
+            let table = self.read_env_binding(env)?;
+            let key = self.load_const(Const::String(name.to_string()))?;
+            self.emit(Op::SetTable, table, key, src);
         } else {
             let key = self.constant(Const::String(name.to_string()))?;
             self.emit(Op::SetGlobal, key, src, 0);
         }
         Ok(())
-    }
-
-    fn table(&mut self, fields: &[(Option<Expr>, Expr)]) -> Result<u16> {
-        let dst = self.alloc();
-        self.emit(Op::NewTable, dst, 0, 0);
-        let mut array_index = 1;
-        for (key, value) in fields {
-            let key = match key {
-                Some(key) => self.expr(key)?,
-                None => {
-                    let reg = self.load_const(Const::Number(array_index as f64))?;
-                    array_index += 1;
-                    reg
-                }
-            };
-            let value = self.expr(value)?;
-            self.emit(Op::SetTable, dst, key, value);
-        }
-        Ok(dst)
     }
 
     fn unary(&mut self, op: UnOp, expr: &Expr) -> Result<u16> {
@@ -223,6 +209,25 @@ impl Compiler {
         let right = self.expr(right)?;
         self.emit(op, dst, right, left);
         Ok(())
+    }
+
+    pub(super) fn env_binding(&self) -> Option<EnvBinding> {
+        if let Some(binding) = self.locals.get("_ENV").copied() {
+            Some(EnvBinding::Local(binding))
+        } else {
+            self.upvalues.get("_ENV").copied().map(EnvBinding::Upvalue)
+        }
+    }
+
+    fn read_env_binding(&mut self, binding: EnvBinding) -> Result<u16> {
+        match binding {
+            EnvBinding::Local(binding) => self.read_binding(binding),
+            EnvBinding::Upvalue(upvalue) => {
+                let dst = self.alloc();
+                self.emit(Op::GetUp, dst, upvalue, 0);
+                Ok(dst)
+            }
+        }
     }
 
     fn read_binding(&mut self, binding: Binding) -> Result<u16> {

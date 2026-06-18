@@ -93,6 +93,8 @@ pub enum Op {
     TailCallGlobalKR,
     CallN,
     Call3,
+    ReturnCall,
+    SetTableCall,
     GenericFor,
     GenericFor2Jmp,
     SuperBlock,

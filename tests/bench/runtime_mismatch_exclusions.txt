@@ -1,11 +1,1 @@
-tests/lua54_conformance/002_return_open_tail.lua
-tests/lua54_conformance/003_table_final_multireturn.lua
-tests/lua54_conformance/004_lexical_env_nested.lua
-tests/scripts/env_globals/001_env_globals.lua
-tests/scripts/env_globals/002_env_globals.lua
-tests/scripts/env_globals/003_env_globals.lua
-tests/scripts/env_globals/004_env_globals.lua
-tests/scripts/env_globals/005_env_globals.lua
-tests/scripts/env_globals/006_env_globals.lua
-tests/scripts/env_globals/007_env_globals.lua
-tests/scripts/env_globals/008_env_globals.lua
+# No known runtime stdout mismatches.

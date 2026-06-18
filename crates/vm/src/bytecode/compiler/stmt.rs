@@ -19,11 +19,11 @@ impl Compiler {
             return Ok(());
         }
         let false_jump = self.false_jump(cond)?;
-        self.stmts(then_body)?;
+        self.scoped_stmts(then_body)?;
         let end_jump = self.emit(Op::Jmp, 0, 0, 0);
         let else_start = self.instructions.len() as u16;
         self.patch_false_jump(false_jump, else_start);
-        self.stmts(else_body)?;
+        self.scoped_stmts(else_body)?;
         let end = self.instructions.len() as u16;
         self.patch_a(end_jump, end);
         Ok(())
@@ -33,7 +33,7 @@ impl Compiler {
         let start = self.instructions.len() as u16;
         let end_jump = self.false_jump(cond)?;
         self.breaks.push(Vec::new());
-        self.stmts(body)?;
+        self.scoped_stmts(body)?;
         self.emit(Op::Jmp, start, 0, 0);
         let end = self.instructions.len() as u16;
         self.patch_false_jump(end_jump, end);
@@ -44,7 +44,7 @@ impl Compiler {
     pub(super) fn repeat_stmt(&mut self, body: &[Stmt], cond: &Expr) -> Result<()> {
         let start = self.instructions.len() as u16;
         self.breaks.push(Vec::new());
-        self.stmts(body)?;
+        self.scoped_stmts(body)?;
         self.false_jump_to(cond, start)?;
         let end = self.instructions.len() as u16;
         self.patch_breaks(end);
@@ -62,6 +62,7 @@ impl Compiler {
         let start_reg = self.expr(start)?;
         let end_reg = self.expr(end)?;
         let step_reg = self.expr(step)?;
+        let locals = self.locals.clone();
         let var = self.reserve(3);
         self.locals.insert(name.to_string(), Binding::Local(var));
         self.emit(Op::Move, var, start_reg, 0);
@@ -87,15 +88,17 @@ impl Compiler {
                 let done = self.instructions.len() as u16;
                 self.patch_b(exit, done);
                 self.patch_breaks(done);
+                self.restore_locals(locals);
                 return Ok(());
             }
         }
         self.breaks.push(Vec::new());
-        self.stmts(body)?;
+        self.scoped_stmts(body)?;
         self.emit(step_op, var, loop_start, 0);
         let done = self.instructions.len() as u16;
         self.patch_b(exit, done);
         self.patch_breaks(done);
+        self.restore_locals(locals);
         Ok(())
     }
 
@@ -147,6 +150,7 @@ impl Compiler {
                 "generic for needs at least one variable".to_string(),
             ));
         }
+        let locals = self.locals.clone();
         let iter_start = self.reserve(3);
         self.generic_iter_values(iter_start, iter)?;
         let name_regs = self.define_locals(names);
@@ -159,7 +163,7 @@ impl Compiler {
             self.emit(Op::GenericFor, first_name, iter_start, names.len() as u16);
             self.emit(Op::JmpFalse, first_name, 0, 0)
         };
-        self.stmts(body)?;
+        self.scoped_stmts(body)?;
         self.emit(Op::Jmp, loop_start, 0, 0);
         let end = self.instructions.len() as u16;
         if names.len() == 2 {
@@ -168,6 +172,7 @@ impl Compiler {
             self.patch_b(exit, end);
         }
         self.patch_breaks(end);
+        self.restore_locals(locals);
         Ok(())
     }
 
@@ -175,12 +180,32 @@ impl Compiler {
         if matches!(values.last(), Some(Expr::VarArgs)) {
             return self.return_varargs(values);
         }
+        if let Some(Expr::Call { callee, args }) = values.last() {
+            return self.return_call(values, callee, args);
+        }
         let start = self.reserve(values.len() as u16);
         for (index, value) in values.iter().enumerate() {
             let src = self.expr(value)?;
             self.emit(Op::Move, start + index as u16, src, 0);
         }
         self.emit(Op::Return, start, values.len() as u16, 0);
+        Ok(())
+    }
+
+    fn return_call(&mut self, values: &[Expr], callee: &Expr, args: &[Expr]) -> Result<()> {
+        let fixed_count = values.len().saturating_sub(1);
+        let start = if fixed_count == 0 {
+            self.next_reg
+        } else {
+            self.reserve(fixed_count as u16)
+        };
+        for (index, value) in values[..fixed_count].iter().enumerate() {
+            let src = self.expr(value)?;
+            self.emit(Op::Move, start + index as u16, src, 0);
+        }
+        let arg_start = self.open_call_args(callee, args)?;
+        let counts = Self::packed_open_counts(fixed_count, args.len())?;
+        self.emit(Op::ReturnCall, start, arg_start, counts);
         Ok(())
     }
 
