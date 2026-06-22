@@ -13,14 +13,7 @@
 
 Ferret is a free, open source Lua 5.4 VM obfuscator. It compiles supported Lua
 source into a custom register bytecode format, encrypts bytecode and constants,
-and emits a standalone Lua VM runtime.
-
-Ferret 1 is designed to be stronger than source packers and web obfuscation
-services while staying honest about its limits. The strong preset adds seeded
-static VM hardening, fake opcode/data layers, bytecode and constant encryption,
-and bounded runtime dump resistance against generic static tooling. It is not
-DRM, anti-debug protection, host fingerprinting, or cryptographic secrecy
-against an attacker who can freely instrument the generated VM.
+and emits a standalone Lua VM runtime. 
 
 ## Project
 
