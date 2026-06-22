@@ -44,6 +44,7 @@ struct Compiler {
     gotos: Vec<(String, usize)>,
     next_reg: u16,
     max_reg: u16,
+    reg_floor: u16,
 }
 
 impl Default for Compiler {
@@ -58,6 +59,7 @@ impl Default for Compiler {
             gotos: Vec::new(),
             next_reg: 1,
             max_reg: 0,
+            reg_floor: 1,
         }
     }
 }
@@ -98,6 +100,7 @@ impl Compiler {
     fn stmts(&mut self, stmts: &[Stmt]) -> Result<()> {
         for stmt in stmts {
             self.stmt(stmt)?;
+            self.release_temps();
         }
         Ok(())
     }
@@ -121,9 +124,12 @@ impl Compiler {
                 let regs = (0..names.len())
                     .map(|offset| start + offset as u16)
                     .collect::<Vec<_>>();
-                let expands_tail_call = matches!(values.last(), Some(ferret_ir::Expr::Call { .. }))
-                    && names.len() > values.len();
-                if expands_tail_call {
+                let expands_tail = names.len() > values.len()
+                    && matches!(
+                        values.last(),
+                        Some(ferret_ir::Expr::Call { .. } | ferret_ir::Expr::VarArgs)
+                    );
+                if expands_tail {
                     if let Some(ferret_ir::Expr::Call { callee, args }) = values.last() {
                         let fixed_count = values.len() - 1;
                         for (index, value) in values[..fixed_count].iter().enumerate() {
@@ -135,6 +141,17 @@ impl Compiler {
                             regs[fixed_count],
                             (names.len() - fixed_count) as u16,
                         )?;
+                    } else if matches!(values.last(), Some(ferret_ir::Expr::VarArgs)) {
+                        let fixed_count = values.len() - 1;
+                        for (index, value) in values[..fixed_count].iter().enumerate() {
+                            self.expr_into(regs[index], value)?;
+                        }
+                        self.emit(
+                            Op::VarArgN,
+                            regs[fixed_count],
+                            (names.len() - fixed_count) as u16,
+                            0,
+                        );
                     }
                 } else {
                     for (index, dst) in regs.iter().copied().enumerate() {
@@ -225,6 +242,21 @@ impl Compiler {
         while self.next_reg < end {
             self.alloc();
         }
+    }
+
+    fn release_temps(&mut self) {
+        self.next_reg = self.live_reg_limit();
+    }
+
+    fn live_reg_limit(&self) -> u16 {
+        self.locals
+            .values()
+            .map(|binding| match binding {
+                Binding::Local(reg) | Binding::Cell(reg) => reg + 1,
+            })
+            .max()
+            .unwrap_or(1)
+            .max(self.reg_floor)
     }
 
     fn emit(&mut self, op: Op, a: u16, b: u16, c: u16) -> usize {

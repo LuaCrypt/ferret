@@ -42,6 +42,7 @@ struct RuntimeFileTiming {
 pub fn run_bench(args: BenchArgs) -> Result<()> {
     let preset = Preset::from_str(&args.preset)?;
     let seed = args.seed.unwrap_or(0xF3EE_2026);
+    let allow_dynamic_loaders = args.allow_dynamic_loaders;
     let runtime = if args.runtime_overhead {
         if args.runtime_runs == 0 {
             bail!("--runtime-runs must be at least 1");
@@ -78,7 +79,14 @@ pub fn run_bench(args: BenchArgs) -> Result<()> {
     let start = Instant::now();
     let mut stats = BenchStats::default();
     for path in files {
-        bench_file(&path, seed, preset, runtime.as_ref(), &mut stats)?;
+        bench_file(
+            &path,
+            seed,
+            preset,
+            allow_dynamic_loaders,
+            runtime.as_ref(),
+            &mut stats,
+        )?;
     }
     print_report(
         &paths,
@@ -99,6 +107,7 @@ fn bench_file(
     path: &Path,
     seed: u64,
     preset: Preset,
+    allow_dynamic_loaders: bool,
     runtime: Option<&RuntimeBench>,
     stats: &mut BenchStats,
 ) -> Result<()> {
@@ -110,7 +119,14 @@ fn bench_file(
         return Ok(());
     };
     let obfuscation_start = Instant::now();
-    let result = obfuscate(source, ObfuscationOptions { seed, preset });
+    let result = obfuscate(
+        source,
+        ObfuscationOptions {
+            seed,
+            preset,
+            allow_dynamic_loaders,
+        },
+    );
     stats.obfuscation_elapsed += obfuscation_start.elapsed();
     match result {
         Ok(result) => {

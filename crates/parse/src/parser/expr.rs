@@ -133,7 +133,7 @@ impl Parser {
     fn finish_prefix(&mut self, mut expr: Expr) -> Result<Expr> {
         loop {
             if self.eat("(") {
-                expr = self.call(expr)?;
+                expr = self.call_with_open_paren(expr)?;
             } else if self.eat(".") {
                 expr = Expr::Index {
                     table: Box::new(expr),
@@ -148,13 +148,18 @@ impl Parser {
                     table: Box::new(expr),
                     key: Box::new(key),
                 };
+            } else if let Some(args) = self.single_call_arg()? {
+                expr = Expr::Call {
+                    callee: Box::new(expr),
+                    args,
+                };
             } else {
                 return Ok(expr);
             }
         }
     }
 
-    fn call(&mut self, callee: Expr) -> Result<Expr> {
+    fn call_with_open_paren(&mut self, callee: Expr) -> Result<Expr> {
         let args = if self.eat(")") {
             Vec::new()
         } else {
@@ -173,16 +178,39 @@ impl Parser {
             table: Box::new(receiver.clone()),
             key: Box::new(Expr::String(self.expect_ident()?)),
         };
-        self.expect("(")?;
         let mut args = vec![receiver];
-        if !self.eat(")") {
+        if self.eat("(") {
+            if self.eat(")") {
+                return Ok(Expr::Call {
+                    callee: Box::new(callee),
+                    args,
+                });
+            }
             args.extend(self.expr_list()?);
             self.expect(")")?;
+        } else if let Some(extra) = self.single_call_arg()? {
+            args.extend(extra);
+        } else {
+            self.expect("(")?;
         }
         Ok(Expr::Call {
             callee: Box::new(callee),
             args,
         })
+    }
+
+    fn single_call_arg(&mut self) -> Result<Option<Vec<Expr>>> {
+        match self.peek().kind.clone() {
+            Kind::String(value) => {
+                self.advance();
+                Ok(Some(vec![Expr::String(value)]))
+            }
+            Kind::Symbol("{") => {
+                self.advance();
+                Ok(Some(vec![self.table()?]))
+            }
+            _ => Ok(None),
+        }
     }
 
     fn table(&mut self) -> Result<Expr> {

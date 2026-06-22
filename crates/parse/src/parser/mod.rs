@@ -133,7 +133,7 @@ impl Parser {
         let step = if self.eat(",") {
             self.expr(0)?
         } else {
-            Expr::Number(1.0)
+            Expr::Number("1".to_string())
         };
         self.expect("do")?;
         let body = self.block(&["end"])?;

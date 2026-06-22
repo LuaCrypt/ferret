@@ -1,5 +1,8 @@
 pub mod token;
 
+mod long;
+mod short_string;
+
 use ferret_util::{FerretError, Result};
 pub use token::{Kind, Token};
 
@@ -39,9 +42,21 @@ impl<'a> Lexer<'a> {
                     self.cursor += 1;
                 }
                 ch if ch.is_whitespace() => self.cursor += 1,
-                '-' if self.peek_next() == Some('-') => self.skip_comment(),
-                '\'' | '"' => tokens.push(self.string()?),
-                ch if ch.is_ascii_digit() => tokens.push(self.number()?),
+                '-' if self.peek_next() == Some('-') => self.skip_comment()?,
+                '[' if long::level(&self.chars, self.cursor).is_some() => {
+                    tokens.push(self.long_string()?)
+                }
+                '\'' | '"' => tokens.push(short_string::lex(
+                    &self.chars,
+                    &mut self.cursor,
+                    &mut self.line,
+                )?),
+                ch if ch.is_ascii_digit()
+                    || (ch == '.'
+                        && self.peek_next().is_some_and(|next| next.is_ascii_digit())) =>
+                {
+                    tokens.push(self.number())
+                }
                 ch if is_ident_start(ch) => tokens.push(self.ident()),
                 _ => tokens.push(self.symbol()?),
             }
@@ -53,7 +68,12 @@ impl<'a> Lexer<'a> {
         Ok(tokens)
     }
 
-    fn skip_comment(&mut self) {
+    fn skip_comment(&mut self) -> Result<()> {
+        self.cursor += 2;
+        if long::level(&self.chars, self.cursor).is_some() {
+            self.long_string()?;
+            return Ok(());
+        }
         while let Some(ch) = self.peek() {
             self.cursor += 1;
             if ch == '\n' {
@@ -61,51 +81,74 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
+        Ok(())
     }
 
-    fn string(&mut self) -> Result<Token> {
-        let quote = self.advance().unwrap();
+    fn long_string(&mut self) -> Result<Token> {
         let line = self.line;
+        let level = long::level(&self.chars, self.cursor)
+            .ok_or_else(|| self.err("expected long string"))?;
+        self.cursor += level + 2;
+        if self.peek() == Some('\n') {
+            self.cursor += 1;
+            self.line += 1;
+        }
         let mut out = String::new();
-        while let Some(ch) = self.advance() {
-            if ch == quote {
+        loop {
+            let Some(ch) = self.peek() else {
+                return Err(self.err("unterminated long string"));
+            };
+            if long::close(&self.chars, self.cursor, level) {
+                self.cursor += level + 2;
                 return Ok(Token {
                     kind: Kind::String(out),
                     line,
                 });
             }
-            if ch == '\\' {
-                out.push(match self.advance() {
-                    Some('n') => '\n',
-                    Some('t') => '\t',
-                    Some('r') => '\r',
-                    Some('\\') => '\\',
-                    Some('"') => '"',
-                    Some('\'') => '\'',
-                    Some(other) => other,
-                    None => return Err(self.err("unterminated escape")),
-                });
-            } else {
-                out.push(ch);
+            self.cursor += 1;
+            if ch == '\n' {
+                self.line += 1;
             }
+            out.push(ch);
         }
-        Err(self.err("unterminated string"))
     }
 
-    fn number(&mut self) -> Result<Token> {
+    fn number(&mut self) -> Token {
         let line = self.line;
         let start = self.cursor;
-        while matches!(self.peek(), Some(ch) if ch.is_ascii_digit() || ch == '.') {
-            self.cursor += 1;
+        if self.peek() == Some('0') && matches!(self.peek_next(), Some('x' | 'X')) {
+            self.cursor += 2;
+            self.take_while(|ch| ch.is_ascii_hexdigit());
+            if self.peek() == Some('.') {
+                self.cursor += 1;
+                self.take_while(|ch| ch.is_ascii_hexdigit());
+            }
+            if matches!(self.peek(), Some('p' | 'P')) {
+                self.cursor += 1;
+                if matches!(self.peek(), Some('+' | '-')) {
+                    self.cursor += 1;
+                }
+                self.take_while(|ch| ch.is_ascii_digit());
+            }
+        } else {
+            self.take_while(|ch| ch.is_ascii_digit());
+            if self.peek() == Some('.') && self.peek_next().is_none_or(|next| next != '.') {
+                self.cursor += 1;
+                self.take_while(|ch| ch.is_ascii_digit());
+            }
+            if matches!(self.peek(), Some('e' | 'E')) {
+                self.cursor += 1;
+                if matches!(self.peek(), Some('+' | '-')) {
+                    self.cursor += 1;
+                }
+                self.take_while(|ch| ch.is_ascii_digit());
+            }
         }
         let value = self.chars[start..self.cursor].iter().collect::<String>();
-        let parsed = value
-            .parse::<f64>()
-            .map_err(|_| self.err("invalid number literal"))?;
-        Ok(Token {
-            kind: Kind::Number(parsed),
+        Token {
+            kind: Kind::Number(value),
             line,
-        })
+        }
     }
 
     fn ident(&mut self) -> Token {
@@ -198,6 +241,12 @@ impl<'a> Lexer<'a> {
 
     fn peek_next(&self) -> Option<char> {
         self.chars.get(self.cursor + 1).copied()
+    }
+
+    fn take_while(&mut self, mut pred: impl FnMut(char) -> bool) {
+        while matches!(self.peek(), Some(ch) if pred(ch)) {
+            self.cursor += 1;
+        }
     }
 
     fn err(&self, message: &str) -> FerretError {

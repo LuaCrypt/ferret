@@ -219,7 +219,7 @@ impl Compiler {
 
     fn scalar_key(&mut self, expr: &Expr) -> Result<Option<u16>> {
         Ok(match expr {
-            Expr::Number(value) => Some(self.constant(Const::Number(*value))?),
+            Expr::Number(value) => Some(self.constant(Const::Number(value.clone()))?),
             Expr::String(value) => Some(self.constant(Const::String(value.clone()))?),
             _ => None,
         })

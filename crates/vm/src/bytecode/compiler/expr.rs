@@ -9,11 +9,13 @@ impl Compiler {
         match expr {
             Expr::Nil => self.load_const(Const::Nil),
             Expr::Bool(value) => self.load_const(Const::Bool(*value)),
-            Expr::Number(value) => self.load_const(Const::Number(*value)),
+            Expr::Number(value) => self.load_const(Const::Number(value.clone())),
             Expr::String(value) => self.load_const(Const::String(value.clone())),
-            Expr::VarArgs => Err(FerretError::Unsupported(
-                "varargs are only supported in return tails".to_string(),
-            )),
+            Expr::VarArgs => {
+                let dst = self.alloc();
+                self.emit(Op::VarArg, dst, 1, 0);
+                Ok(dst)
+            }
             Expr::Var(name) => self.var(name),
             Expr::Table(fields) => self.table(fields),
             Expr::Unary { op, expr } => self.unary(*op, expr),
@@ -63,6 +65,18 @@ impl Compiler {
                 return Ok(regs);
             }
         }
+        if matches!(values.last(), Some(Expr::VarArgs)) {
+            let fixed_count = values.len() - 1;
+            if target_count > fixed_count {
+                let mut regs = self.value_regs(&values[..fixed_count], fixed_count)?;
+                let vararg_count = target_count - fixed_count;
+                let dst = self.next_reg;
+                self.reserve(vararg_count as u16);
+                self.emit(Op::VarArgN, dst, vararg_count as u16, 0);
+                regs.extend((0..vararg_count).map(|index| dst + index as u16));
+                return Ok(regs);
+            }
+        }
         values.iter().map(|value| self.expr(value)).collect()
     }
 
@@ -87,7 +101,7 @@ impl Compiler {
         match expr {
             Expr::Nil => self.load_const_into(dst, Const::Nil)?,
             Expr::Bool(value) => self.load_const_into(dst, Const::Bool(*value))?,
-            Expr::Number(value) => self.load_const_into(dst, Const::Number(*value))?,
+            Expr::Number(value) => self.load_const_into(dst, Const::Number(value.clone()))?,
             Expr::String(value) => self.load_const_into(dst, Const::String(value.clone()))?,
             Expr::Unary { op, expr } => {
                 let src = self.expr(expr)?;
@@ -268,7 +282,7 @@ fn const_bin_op(op: BinOp) -> Option<Op> {
 
 fn scalar_const(expr: &Expr) -> Option<Const> {
     match expr {
-        Expr::Number(value) => Some(Const::Number(*value)),
+        Expr::Number(value) => Some(Const::Number(value.clone())),
         Expr::String(value) => Some(Const::String(value.clone())),
         _ => None,
     }

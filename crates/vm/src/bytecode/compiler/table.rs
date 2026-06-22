@@ -22,11 +22,15 @@ impl Compiler {
                     self.emit(Op::SetTableCall, dst, arg_start, counts);
                     continue;
                 }
+                if matches!(value, Expr::VarArgs) {
+                    self.emit(Op::SetTableVarArg, dst, array_index as u16, 0);
+                    continue;
+                }
             }
             let key = match key {
                 Some(key) => self.expr(key)?,
                 None => {
-                    let reg = self.load_const(Const::Number(array_index as f64))?;
+                    let reg = self.load_const(Const::Number(array_index.to_string()))?;
                     array_index += 1;
                     reg
                 }

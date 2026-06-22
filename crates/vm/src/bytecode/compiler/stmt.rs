@@ -68,17 +68,14 @@ impl Compiler {
         self.emit(Op::Move, var, start_reg, 0);
         self.emit(Op::Move, var + 1, end_reg, 0);
         self.emit(Op::Move, var + 2, step_reg, 0);
-        let positive_step = matches!(step, Expr::Number(value) if *value >= 0.0);
-        let check_op = if positive_step {
-            Op::ForCheckPos
+        let positive_step = matches!(step, Expr::Number(value) if number_value(value) >= Some(0.0));
+        let (check_op, step_op) = if positive_step {
+            (Op::ForCheckPos, Op::ForStepPos)
         } else {
-            Op::ForCheck
+            (Op::ForCheck, Op::ForStep)
         };
-        let step_op = if positive_step {
-            Op::ForStepPos
-        } else {
-            Op::ForStep
-        };
+        let old_floor = self.reg_floor;
+        self.reg_floor = self.reg_floor.max(var + 3);
         let exit = self.emit(check_op, var, 0, 0);
         let loop_start = self.instructions.len() as u16;
         if positive_step {
@@ -88,6 +85,7 @@ impl Compiler {
                 let done = self.instructions.len() as u16;
                 self.patch_b(exit, done);
                 self.patch_breaks(done);
+                self.reg_floor = old_floor;
                 self.restore_locals(locals);
                 return Ok(());
             }
@@ -98,6 +96,7 @@ impl Compiler {
         let done = self.instructions.len() as u16;
         self.patch_b(exit, done);
         self.patch_breaks(done);
+        self.reg_floor = old_floor;
         self.restore_locals(locals);
         Ok(())
     }
@@ -153,6 +152,8 @@ impl Compiler {
         let locals = self.locals.clone();
         let iter_start = self.reserve(3);
         self.generic_iter_values(iter_start, iter)?;
+        let old_floor = self.reg_floor;
+        self.reg_floor = self.reg_floor.max(iter_start + 3);
         let name_regs = self.define_locals(names);
         let first_name = name_regs[0];
         let loop_start = self.instructions.len() as u16;
@@ -172,6 +173,7 @@ impl Compiler {
             self.patch_b(exit, end);
         }
         self.patch_breaks(end);
+        self.reg_floor = old_floor;
         self.restore_locals(locals);
         Ok(())
     }
@@ -202,6 +204,23 @@ impl Compiler {
         for (index, value) in values[..fixed_count].iter().enumerate() {
             let src = self.expr(value)?;
             self.emit(Op::Move, start + index as u16, src, 0);
+        }
+        if let Some((
+            Expr::Call {
+                callee: tail_callee,
+                args: tail_args,
+            },
+            fixed_args,
+        )) = args.split_last()
+        {
+            let func = start + fixed_count as u16;
+            self.reserve_to(func + 1);
+            let src = self.expr(callee)?;
+            self.emit(Op::Move, func, src, 0);
+            self.open_fixed_and_tail(func + 1, fixed_args, tail_callee, tail_args)?;
+            let counts = Self::packed_open_counts(fixed_args.len(), tail_args.len())?;
+            self.emit(Op::ReturnCallOpen, start, func, counts);
+            return Ok(());
         }
         let arg_start = self.open_call_args(callee, args)?;
         let counts = Self::packed_open_counts(fixed_count, args.len())?;
@@ -256,6 +275,10 @@ impl Compiler {
             FalseJump::C(index) => self.patch_c(index, target),
         }
     }
+}
+
+fn number_value(value: &str) -> Option<f64> {
+    value.parse::<f64>().ok()
 }
 
 fn comparison_false_jump<'a>(

@@ -7,6 +7,7 @@ members = [
     "crates/parse",
     "crates/vm",
     "crates/core",
+    "crates/wasm",
     "crates/cli",
 ]
 resolver = "2"
@@ -29,5 +30,7 @@ ferret-util = { path = "crates/util" }
 ferret-vm = { path = "crates/vm" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde-wasm-bindgen = "0.6"
 tempfile = "3.10"
 thiserror = "2.0"
+wasm-bindgen = "0.2"

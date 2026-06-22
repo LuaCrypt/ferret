@@ -6,6 +6,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+ferret-ir.workspace = true
 ferret-parse.workspace = true
 ferret-util.workspace = true
 ferret-vm.workspace = true

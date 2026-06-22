@@ -208,9 +208,10 @@ while true do
  elseif op==OP_SETUP then U[a+1][1]=R[b]
  elseif op==OP_SETTABLECALL then {settable_call_body}
  elseif op==OP_RETURNCALL then {return_call_body}
+ elseif op==OP_RETURNCALLOPEN then local rc=b-a; local fc=(c>>8)&255; local tc=c&255; local fs=b+1; local tf=fs+fc; local rn,V=@PR@(R[tf](_u(R,tf+1,tf+tc))); local A={{}}; for i=1,fc do A[i]=R[fs+i-1] end; for i=1,rn do A[fc+i]=V[i] end; local rn2,V2=@PR@(R[b](_u(A,1,fc+rn))); if rc==0 then return _u(V2,1,rn2) end; local T={{}}; for i=1,rc do T[i]=R[a+i-1] end; for i=1,rn2 do T[rc+i]=V2[i] end; return _u(T,1,rc+rn2)
  elseif op==OP_RETURN then {return_body}
 {alias_return}
- elseif op==OP_RETURNVARARG then local T={{}}; local n=b; for i=1,b do T[i]=R[a+i-1] end; for i=P+1,N do n=n+1; T[n]=_sel(i,...) end; return _u(T,1,n)
+ elseif op==OP_RETURNVARARG then local T={{}}; local n=b; for i=1,b do T[i]=R[a+i-1] end; for i=P+1,N do n=n+1; T[n]=_sel(i,...) end; return _u(T,1,n) elseif op==OP_VARARG then R[a]=_sel(P+b,...) elseif op==OP_VARARGN then for i=1,b do R[a+i-1]=_sel(P+i,...) end elseif op==OP_SETTABLEVARARG then local j=b; for i=P+1,N do R[a][j]=_sel(i,...); j=j+1 end elseif op==OP_CALLVARARG then local s=(c>>8)&255; local n=c&255; local A={{}}; for i=1,n do A[i]=R[s+i-1] end; for i=P+1,N do n=n+1; A[n]=_sel(i,...) end; R[a]=R[b](_u(A,1,n)) elseif op==OP_CALLNVARARG then local r=(c>>8)&255; local n=c&255; local s=a+r; local A={{}}; for i=1,n do A[i]=R[s+i-1] end; for i=P+1,N do n=n+1; A[n]=_sel(i,...) end; local V={{R[b](_u(A,1,n))}}; for i=1,r do R[a+i-1]=V[i] end elseif op==OP_CALLOPEN then local fc=(c>>8)&255; local tc=c&255; local fs=b+1; local tf=fs+fc; local rn,V=@PR@(R[tf](_u(R,tf+1,tf+tc))); local A={{}}; for i=1,fc do A[i]=R[fs+i-1] end; for i=1,rn do A[fc+i]=V[i] end; R[a]=R[b](_u(A,1,fc+rn)) elseif op==OP_CALLNOPEN then local r=b-a; local fc=(c>>8)&255; local tc=c&255; local fs=b+1; local tf=fs+fc; local rn,V=@PR@(R[tf](_u(R,tf+1,tf+tc))); local A={{}}; for i=1,fc do A[i]=R[fs+i-1] end; for i=1,rn do A[fc+i]=V[i] end; local RV={{R[b](_u(A,1,fc+rn))}}; for i=1,r do R[a+i-1]=RV[i] end
  elseif op==OP_CALL then {call_body}
  elseif op==OP_CALLGLOBAL then {callglobal_body}
 {alias_callglobal}

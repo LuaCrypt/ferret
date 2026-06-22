@@ -1,6 +1,9 @@
 use ferret_util::{stable_hash, Result};
 use serde::{Deserialize, Serialize};
 
+mod hostile;
+use hostile::reject_hostile;
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Preset {
@@ -27,6 +30,7 @@ impl std::str::FromStr for Preset {
 pub struct ObfuscationOptions {
     pub seed: u64,
     pub preset: Preset,
+    pub allow_dynamic_loaders: bool,
 }
 
 impl Default for ObfuscationOptions {
@@ -34,6 +38,7 @@ impl Default for ObfuscationOptions {
         Self {
             seed: 0xF3EE_2026,
             preset: Preset::Strong,
+            allow_dynamic_loaders: false,
         }
     }
 }
@@ -73,6 +78,7 @@ pub struct Metadata {
     pub runtime_integrity_checks: bool,
     pub delayed_string_constants: bool,
     pub output_hardened: bool,
+    pub dynamic_loaders_allowed: bool,
     pub limitations: Vec<String>,
 }
 
@@ -83,8 +89,8 @@ pub struct ObfuscationResult {
 }
 
 pub fn obfuscate(source: &str, options: ObfuscationOptions) -> Result<ObfuscationResult> {
-    reject_hostile(source)?;
     let program = ferret_parse::parse(source)?;
+    reject_hostile(&program, options.allow_dynamic_loaders)?;
     let compiled = ferret_vm::compile(&program)?;
     let profile = match options.preset {
         Preset::Balanced => ferret_vm::OutputProfile::Lean,
@@ -101,7 +107,7 @@ pub fn obfuscate(source: &str, options: ObfuscationOptions) -> Result<Obfuscatio
         seed: options.seed,
         input_hash: stable_hash(source.as_bytes()),
         output_hash: emitted.output_hash,
-        vm_only: true,
+        vm_only: !options.allow_dynamic_loaders,
         source_reconstruction: false,
         instruction_count: compiled.chunk.instructions.len(),
         bytecode_word_count: emitted.bytecode_words,
@@ -129,6 +135,7 @@ pub fn obfuscate(source: &str, options: ObfuscationOptions) -> Result<Obfuscatio
         runtime_integrity_checks: emitted.runtime_integrity_checks,
         delayed_string_constants: emitted.delayed_string_constants,
         output_hardened: emitted.output_hardened,
+        dynamic_loaders_allowed: options.allow_dynamic_loaders,
         limitations: vec![
             "bounded runtime dump resistance; open-source runtime can still be instrumented"
                 .to_string(),
@@ -140,15 +147,4 @@ pub fn obfuscate(source: &str, options: ObfuscationOptions) -> Result<Obfuscatio
         code: emitted.code,
         metadata,
     })
-}
-
-fn reject_hostile(source: &str) -> Result<()> {
-    for word in ["load", "loadfile", "dofile", "debug", "coroutine.yield"] {
-        if source.contains(word) {
-            return Err(ferret_util::FerretError::Unsupported(format!(
-                "'{word}' is rejected by the VM-only profile"
-            )));
-        }
-    }
-    Ok(())
 }

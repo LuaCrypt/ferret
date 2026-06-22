@@ -50,7 +50,7 @@ pub enum Stmt {
 pub enum Expr {
     Nil,
     Bool(bool),
-    Number(f64),
+    Number(String),
     String(String),
     VarArgs,
     Var(String),

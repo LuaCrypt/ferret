@@ -7,6 +7,12 @@ use super::{captures::collect_captures, Binding, Compiler};
 
 impl Compiler {
     pub(super) fn call(&mut self, callee: &Expr, args: &[Expr]) -> Result<u16> {
+        if let Some(fixed) = fixed_args_before_varargs(args) {
+            return self.call_varargs(callee, fixed);
+        }
+        if let Some((fixed, tail_callee, tail_args)) = fixed_args_before_open_call(args) {
+            return self.call_open(callee, fixed, tail_callee, tail_args);
+        }
         let dst = self.alloc();
         let (func, arg_start) = self.call_parts(callee, args)?;
         self.emit(Op::Call, dst, func, arg_start);
@@ -18,6 +24,12 @@ impl Compiler {
         let Expr::Var(name) = callee else {
             return Ok(false);
         };
+        if fixed_args_before_varargs(args).is_some() {
+            return Ok(false);
+        }
+        if fixed_args_before_open_call(args).is_some() {
+            return Ok(false);
+        }
         if self.locals.contains_key(name)
             || self.upvalues.contains_key(name)
             || self.env_binding().is_some()
@@ -44,6 +56,12 @@ impl Compiler {
         dst: u16,
         count: u16,
     ) -> Result<()> {
+        if let Some(fixed) = fixed_args_before_varargs(args) {
+            return self.call_n_varargs_into(callee, fixed, dst, count);
+        }
+        if let Some((fixed, tail_callee, tail_args)) = fixed_args_before_open_call(args) {
+            return self.call_n_open_into(callee, fixed, tail_callee, tail_args, dst, count);
+        }
         let arg_start = dst + count;
         let mut func = self.expr(callee)?;
         if func >= arg_start && func < arg_start + args.len() as u16 {
@@ -117,6 +135,97 @@ impl Compiler {
         Ok((func, arg_start))
     }
 
+    fn call_varargs(&mut self, callee: &Expr, args: &[Expr]) -> Result<u16> {
+        let dst = self.alloc();
+        let func = self.expr(callee)?;
+        let arg_start = self.args_after_current(args)?;
+        self.emit(
+            Op::CallVarArg,
+            dst,
+            func,
+            packed_start_count(arg_start, args.len())?,
+        );
+        Ok(dst)
+    }
+
+    fn call_open(
+        &mut self,
+        callee: &Expr,
+        fixed: &[Expr],
+        tail_callee: &Expr,
+        tail_args: &[Expr],
+    ) -> Result<u16> {
+        let dst = self.alloc();
+        let func = self.open_func_slot(callee)?;
+        self.open_fixed_and_tail(func + 1, fixed, tail_callee, tail_args)?;
+        let counts = Self::packed_open_counts(fixed.len(), tail_args.len())?;
+        self.emit(Op::CallOpen, dst, func, counts);
+        Ok(dst)
+    }
+
+    fn call_n_varargs_into(
+        &mut self,
+        callee: &Expr,
+        args: &[Expr],
+        dst: u16,
+        count: u16,
+    ) -> Result<()> {
+        let arg_start = dst + count;
+        let mut func = self.expr(callee)?;
+        if func >= arg_start && func < arg_start + args.len() as u16 {
+            let slot = self.next_reg;
+            self.reserve(1);
+            self.emit(Op::Move, slot, func, 0);
+            func = slot;
+        }
+        self.args_at(arg_start, args)?;
+        self.emit(Op::CallNVarArg, dst, func, (count << 8) | args.len() as u16);
+        Ok(())
+    }
+
+    fn call_n_open_into(
+        &mut self,
+        callee: &Expr,
+        fixed: &[Expr],
+        tail_callee: &Expr,
+        tail_args: &[Expr],
+        dst: u16,
+        count: u16,
+    ) -> Result<()> {
+        let func = dst + count;
+        self.reserve_to(func + 1);
+        let src = self.expr(callee)?;
+        self.emit(Op::Move, func, src, 0);
+        self.open_fixed_and_tail(func + 1, fixed, tail_callee, tail_args)?;
+        let counts = Self::packed_open_counts(fixed.len(), tail_args.len())?;
+        self.emit(Op::CallNOpen, dst, func, counts);
+        Ok(())
+    }
+
+    fn open_func_slot(&mut self, callee: &Expr) -> Result<u16> {
+        let slot = self.next_reg;
+        self.reserve(1);
+        let src = self.expr(callee)?;
+        self.emit(Op::Move, slot, src, 0);
+        Ok(slot)
+    }
+
+    pub(super) fn open_fixed_and_tail(
+        &mut self,
+        start: u16,
+        fixed: &[Expr],
+        tail_callee: &Expr,
+        tail_args: &[Expr],
+    ) -> Result<()> {
+        self.args_at(start, fixed)?;
+        let tail_func = start + fixed.len() as u16;
+        self.reserve_to(tail_func + 1);
+        let src = self.expr(tail_callee)?;
+        self.emit(Op::Move, tail_func, src, 0);
+        self.args_at(tail_func + 1, tail_args)?;
+        Ok(())
+    }
+
     fn args_after_current(&mut self, args: &[Expr]) -> Result<u16> {
         let arg_start = self.next_reg;
         self.args_at(arg_start, args)
@@ -161,4 +270,26 @@ impl Compiler {
             None => Err(FerretError::Compile("missing local binding".to_string())),
         }
     }
+}
+
+fn fixed_args_before_varargs(args: &[Expr]) -> Option<&[Expr]> {
+    let (last, fixed) = args.split_last()?;
+    matches!(last, Expr::VarArgs).then_some(fixed)
+}
+
+fn fixed_args_before_open_call(args: &[Expr]) -> Option<(&[Expr], &Expr, &[Expr])> {
+    let (last, fixed) = args.split_last()?;
+    match last {
+        Expr::Call { callee, args } => Some((fixed, callee, args)),
+        _ => None,
+    }
+}
+
+fn packed_start_count(start: u16, count: usize) -> Result<u16> {
+    if start > u8::MAX as u16 || count > u8::MAX as usize {
+        return Err(FerretError::Unsupported(
+            "vararg call shape is too large for the VM subset".to_string(),
+        ));
+    }
+    Ok((start << 8) | count as u16)
 }

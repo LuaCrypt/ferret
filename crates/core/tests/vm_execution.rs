@@ -182,9 +182,40 @@ print("env_scope_after", type(value))
 }
 
 #[test]
+fn supports_single_argument_call_syntax() {
+    if !lua_available() {
+        return;
+    }
+    let source = r#"
+print "string_call"
+local t = setmetatable({}, { __call = function(_, value) print("table_call", value[1]) end })
+t { "ok" }
+"#;
+    let result = obfuscate(source, ObfuscationOptions::default()).unwrap();
+    let temp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(temp.path(), result.code).unwrap();
+    let original = run_lua_source(source);
+    let obfuscated = run_lua(temp.path());
+    assert_eq!(original.status.code(), obfuscated.status.code());
+    assert_eq!(original.stdout, obfuscated.stdout);
+}
+
+#[test]
 fn rejects_dynamic_loader() {
     let err = obfuscate("load('print(1)')()", ObfuscationOptions::default()).unwrap_err();
     assert!(err.to_string().contains("load"));
+}
+
+#[test]
+fn rejects_debug_lib_references() {
+    for source in [
+        "local x = debug\nprint(x.getinfo)",
+        "local x = _ENV.debug\nprint(x.getinfo)",
+        "local x = require('debug')\nprint(x.getinfo)",
+    ] {
+        let err = obfuscate(source, ObfuscationOptions::default()).unwrap_err();
+        assert!(err.to_string().contains("debug"), "{source}");
+    }
 }
 
 fn fixture_path(name: &str) -> std::path::PathBuf {

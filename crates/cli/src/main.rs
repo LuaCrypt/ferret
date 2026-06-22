@@ -24,7 +24,14 @@ fn run_obfuscate(args: args::ObfuscateArgs) -> Result<()> {
         .with_context(|| format!("failed to read {}", args.input.display()))?;
     let seed = args.seed.unwrap_or(0xF3EE_2026);
     let preset = Preset::from_str(&args.preset)?;
-    let result = obfuscate(&source, ObfuscationOptions { seed, preset })?;
+    let result = obfuscate(
+        &source,
+        ObfuscationOptions {
+            seed,
+            preset,
+            allow_dynamic_loaders: args.allow_dynamic_loaders,
+        },
+    )?;
     if let Some(parent) = args.output.parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent)?;

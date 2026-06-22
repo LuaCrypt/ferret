@@ -67,8 +67,8 @@ fn constant(
             out.push_str(&numbers.u8(u8::from(*value)));
             out.push_str("},");
         }
-        Const::Number(value) => protected(out, 2, &number_text(*value), seed, numbers),
-        Const::String(value) => protected(out, 3, value, seed, numbers),
+        Const::Number(value) => protected(out, 2, value, seed, numbers),
+        Const::String(value) => protected_bytes(out, 3, &lua_string_bytes(value), seed, numbers),
         Const::Function { chunk, captures } => {
             function_const(out, chunk, captures, seed, opcodes, layout, numbers)
         }
@@ -126,13 +126,37 @@ fn capture_item(out: &mut String, tag: u8, value: u16, numbers: &mut NumberEncod
 }
 
 fn protected(out: &mut String, tag: u8, value: &str, seed: u64, numbers: &mut NumberEncoder) {
+    protected_bytes(out, tag, value.as_bytes(), seed, numbers)
+}
+
+fn protected_bytes(
+    out: &mut String,
+    tag: u8,
+    value: &[u8],
+    seed: u64,
+    numbers: &mut NumberEncoder,
+) {
     out.push('{');
     out.push_str(&numbers.u8(tag));
     out.push(',');
     out.push_str(&numbers.u32(seed as u32));
     out.push(',');
-    bytes(out, &encode_bytes(value.as_bytes(), seed), numbers);
+    bytes(out, &encode_bytes(value, seed), numbers);
     out.push_str("},");
+}
+
+fn lua_string_bytes(value: &str) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(value.len());
+    for ch in value.chars() {
+        let code = ch as u32;
+        if code <= u8::MAX as u32 {
+            bytes.push(code as u8);
+        } else {
+            let mut buf = [0u8; 4];
+            bytes.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+        }
+    }
+    bytes
 }
 
 fn shuffled_order(len: usize, seed: u64) -> Vec<usize> {
@@ -147,12 +171,4 @@ fn shuffled_order(len: usize, seed: u64) -> Vec<usize> {
 
 fn item_seed(seed: u64, index: usize) -> u64 {
     seed ^ ((index as u64 + 1) * 0x9e37)
-}
-
-fn number_text(value: f64) -> String {
-    if value.fract() == 0.0 {
-        format!("{value:.0}")
-    } else {
-        value.to_string()
-    }
 }

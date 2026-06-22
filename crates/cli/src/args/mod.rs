@@ -31,6 +31,9 @@ pub struct ObfuscateArgs {
 
     #[arg(long)]
     pub metadata: Option<PathBuf>,
+
+    #[arg(long)]
+    pub allow_dynamic_loaders: bool,
 }
 
 #[derive(Debug, Args)]
@@ -60,4 +63,7 @@ pub struct BenchArgs {
 
     #[arg(long, default_value = "lua")]
     pub lua: PathBuf,
+
+    #[arg(long)]
+    pub allow_dynamic_loaders: bool,
 }
